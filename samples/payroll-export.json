@@ -1,0 +1,7 @@
+{"records":[
+ {"employee_id":"E-1001","full_name":"Maria Schmidt","email":"m.schmidt@example.com","iban":"DE89370400440532013000","department":"Logistics","month":"2026-09","gross_salary":4200.5,"approved":true},
+ {"employee_id":"E-1002","full_name":"Tomás García","email":"t.garcia@example.com","iban":"DE02120300000000202051","department":"Finance","month":"2026-09","gross_salary":5100,"approved":true},
+ {"employee_id":"E-1003","full_name":"Aiko Tanaka","email":"a.tanaka@example.com","iban":"DE02500105170137075030","department":"Engineering","month":"2026-09","gross_salary":6350,"approved":false},
+ {"employee_id":"E-1004","full_name":"Kwame Mensah","email":"k.mensah@example.com","iban":"DE88100900001234567892","department":"Engineering","month":"2026-09","gross_salary":6100,"approved":true},
+ {"employee_id":"E-1005","full_name":"Sofia Rossi","email":"s.rossi@example.com","iban":"DE91100000000123456789","department":"Logistics","month":"2026-09","gross_salary":3900,"approved":true}
+]}

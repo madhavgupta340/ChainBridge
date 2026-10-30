@@ -1,0 +1,11 @@
+Shipment ID,Customer Name,Customer Email,Destination City,Ship Date,Weight (kg),Insured,Status
+SHP-1001,Lena Braun, Lena.Braun@Example.org ,Munich,02.09.26,"1.250,5",yes,Delivered
+SHP-1002,Omar Haddad,omar.haddad@example.org,Hamburg,2026-09-03,820,Y,Delivered
+SHP-1003,Julia Novak,julia.novak@example.org,Vienna,15.09.26,"2.100",no,In transit
+SHP-1004,Lena Braun,lena.braun@example.org,Munich,05.09.26,640,TRUE,Delivered
+SHP-1005,Pieter de Vries,P.deVries@Example.org,Amsterdam,21.09.26,"1.075,25",nein,Delayed
+SHP-1002,Omar Haddad,omar.haddad@example.org,Hamburg,2026-09-03,820,Y,Delivered
+SHP-1006,Sara Conti,sara.conti@example.org,Milan,30.09.26,980,1,Delivered
+,,,,,,,
+SHP-1007,Omar Haddad,omar.haddad@example.org,Hamburg ,01.10.26,455,false,In transit
+SHP-1008,Julia Novak,julia.novak@example.org,Vienna,03.10.26,"3.300",ja,Delivered

@@ -1,0 +1,13 @@
+certificate_id,supplier,product,origin_country,batch_kg,inspection_date,passed,inspector_name,inspector_email,lab_report_url
+CERT-2026-0001,Alpenmilch GmbH,Organic whole milk powder,DE,1200,2026-09-02,true,Anna Keller,anna.keller@example.org,https://labs.example.org/r/0001
+CERT-2026-0002,Bodensee Agrar,Rapeseed oil,DE,800,2026-09-04,true,Jonas Weber,jonas.weber@example.org,https://labs.example.org/r/0002
+CERT-2026-0003,Tirol Kaese KG,Mountain cheese,AT,450,2026-09-05,false,Lea Huber,lea.huber@example.org,https://labs.example.org/r/0003
+CERT-2026-0004,"Moser & Sons",Spelt flour,AT,2000,2026-09-09,true,Anna Keller,anna.keller@example.org,https://labs.example.org/r/0004
+CERT-2026-0005,Lombardia Riso,Arborio rice,IT,1500,2026-09-11,true,Marco Rossi,marco.rossi@example.org,https://labs.example.org/r/0005
+CERT-2026-0006,Alpenmilch GmbH,Skimmed milk powder,DE,900,2026-09-15,true,Jonas Weber,jonas.weber@example.org,https://labs.example.org/r/0006
+CERT-2026-0007,Bio Hof Sonnleitn,Apple juice concentrate,AT,650,2026-09-18,true,Lea Huber,lea.huber@example.org,https://labs.example.org/r/0007
+CERT-2026-0008,Lombardia Riso,Carnaroli rice,IT,1100,2026-09-22,false,Marco Rossi,marco.rossi@example.org,https://labs.example.org/r/0008
+CERT-2026-0009,"Hofmann, Feinkost",Pumpkin seed oil,AT,300,2026-09-25,true,Anna Keller,anna.keller@example.org,https://labs.example.org/r/0009
+CERT-2026-0010,Bodensee Agrar,Rapeseed oil,DE,800,2026-09-29,true,Jonas Weber,jonas.weber@example.org,https://labs.example.org/r/0010
+CERT-2026-0011,Alpenmilch GmbH,Butter,DE,500,2026-10-01,true,Lea Huber,lea.huber@example.org,https://labs.example.org/r/0011
+CERT-2026-0012,Tirol Kaese KG,Mountain cheese,AT,450,2026-10-06,true,Marco Rossi,marco.rossi@example.org,https://labs.example.org/r/0012
