@@ -1,23 +1,38 @@
 # ChainBridge
 
-**Prepare data from traditional systems for blockchain verification, and buy the agent service on Cardano.**
+**A pay-per-use AI agent on Cardano that tidies your data, seals it with a fingerprint, and publishes that fingerprint on the blockchain as public proof.**
 
-A team loads any CSV or JSON table. An AI model (Meta, optional) suggests how to tidy and sort it, the user approves each change, and ChainBridge applies them deterministically. ChainBridge then flags sensitive fields, recommends a privacy-aware anchoring plan, and computes a cryptographic commitment (a salted Merkle root) in the browser. Raw records stay off-chain and on the user's machine. A ChainBridge agent, running as a Sokosumi Coworker and paid through the Masumi Payment Service on **Cardano Preprod**, independently recomputes the root from leaf hashes and returns an anchoring certificate. In paid mode, the hash of that certificate is submitted to the Masumi escrow contract.
+A customer uploads any CSV or JSON table and gets a **free price quote** calculated from simple measurements of the file. If they accept, they **pay once with x402**, a direct pay-per-request protocol on Cardano with no escrow and no account. The ChainBridge agent then does the paid work:
 
-Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: *"Build an agent, service or developer tool that does a useful job and gets paid for it on Cardano."* It is built on the official [Masumi TUM quickstart](https://github.com/masumi-network/tum-hackathon-quickstart) (commit `d93783b`), keeping its worker, payment adapter, registration and safety checks.
+1. **AI tidy-up:** Meta AI analyses a masked sample (private columns hidden) and suggests fixes. The customer approves each one.
+2. **Fingerprint:** a salted SHA-256 Merkle root of the chosen columns, created in the customer's browser.
+3. **Publication on Cardano:** the agent publishes the fingerprint in its own Preprod transaction (metadata label 674).
 
-> **Test network only.** Preprod test tokens have no real value. A commitment shows whether data matches what was anchored. It does **not** prove the source data is accurate, and paying for the service does not change that.
+**The signed payment is only sent after publication succeeds.** If anything fails before that, the customer is not charged. The customer downloads one package: the cleaned data, an AI report, a certificate with the Cardano links, and a private proof file for checking records later. The full file never leaves the customer's device.
+
+Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: *"Build an agent, service or developer tool that does a useful job and gets paid for it on Cardano."* It is built on the official [Masumi TUM quickstart](https://github.com/masumi-network/tum-hackathon-quickstart) (commit `d93783b`); the Sokosumi/Masumi escrow path from the template still works as an alternative.
+
+> **Test network only.** Preprod test tokens have no real value. A fingerprint shows whether data matches what was sealed. It does **not** prove the source data was accurate.
 
 ## Track status (honest)
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Useful agent/service | **Met** | AI-assisted data organizing, privacy-aware commitments, Merkle anchoring certificate, proof verification. 78 automated tests. |
-| Runs as a Sokosumi Coworker | **Met** | Coworker `01a18d16-b119-7273-8778-92bb94281ffa` ("ChainBridge", vendor "Cardano to the Moon") completed Task `01a18f19-7fe2-7045-9011-128858636892` on Sokosumi Preprod. |
-| Gets paid on Cardano (Masumi, Preprod) | **Met (test network)** | Masumi registration confirmed; paid Task settled with 1 tUSDM (test token). |
-| Completed paid task + seller receipt | **Met (test network)** | Sokosumi receipt `settled: true`; seller net receipt of 1 tUSDM verified on-chain via Blockfrost. |
+| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification. 89 automated tests. |
+| Gets paid on Cardano | **Met (test network)** | x402 payment of 4.75 tADA, settled on Preprod only after publication (below). Also two Masumi escrow payments via Sokosumi. |
+| Does the job on Cardano | **Met (test network)** | Fingerprints published as transaction metadata, read back from the chain. |
+| Runs as a Sokosumi Coworker (alternative path) | **Met** | Coworker `01a18d16-b119-7273-8778-92bb94281ffa` completed paid Tasks with verified seller receipts. |
 
 ### Evidence log (Cardano Preprod, 2026-10-31; test tokens, no real value)
+
+**Main flow: x402 pay-per-use** (messy shipments sample, 10 records, quoted 4.75 tADA, paid with the demo test wallet, Meta AI tidy-up approved, 8 records sealed):
+
+- Fingerprint `ce6eb2ab3cf389d274da8d94eef15b0444d7ba89d59044a45c5fca01c437d088`
+- **Published on Cardano** (block 5355257): [`7fefcbba…231872`](https://preprod.cardanoscan.io/transaction/7fefcbba57d7cd1acefee34f38aef39ec230d64f687fb87594c5ce868a231872)
+- **x402 payment settled after publication**, 4.75 tADA to ChainBridge (verified and settled through the Cardano Foundation Preprod facilitator): [`7e28c472…98e091`](https://preprod.cardanoscan.io/transaction/7e28c4725bb2b179aaff16010e45da4f4cbc323ff0e7166f88f1e8dd7a98e091)
+- Earlier x402 protocol test (2 tADA, verify then settle): [`711b756a…c2163e`](https://preprod.cardanoscan.io/transaction/711b756a9f59d608cd9e4b3357415c0faa5299b87c3a9c464df0cf0e81c2163e)
+
+**Alternative: Sokosumi task paid through Masumi escrow (1 tUSDM).**
 
 Created from the ChainBridge app (supplier certificates sample, 12 records → Merkle root `a5aa79ed86a085a61fe074bd6b3ed1c7cfe0f701c4c5fa45da260ae26c9e001f`), approved at a quoted 1 tUSDM, run by the ChainBridge worker.
 
@@ -37,33 +52,51 @@ Created from the ChainBridge app (supplier certificates sample, 12 records → M
 - **Fingerprint published on Cardano Preprod** by the agent's publishing wallet, block 5355170, fee 0.175401 tADA: [`5476b483…3d12da`](https://preprod.cardanoscan.io/transaction/5476b4830038e3fe0c6e850d371988eaaf5e6b96fc54680b1534df958d3d12da)
 - Read back from the chain (metadata label 674): `["ChainBridge data fingerprint v1","sha-256 merkle root:","a33b2f4e…7aaaa9","records: 8","salted: true","job: cb-693bad795f216e282f5f83ae"]`
 
-## Quick start (demo mode, about 2 minutes)
+## Quick start
 
-Prerequisites: Node.js 24+ and Git. No accounts are needed for demo mode.
+Prerequisites: Node.js 24+, Git, and a free [Blockfrost](https://blockfrost.io/) **Preprod** key. A [Meta Model API](https://dev.meta.ai/) key is needed for the AI analysis.
 
 ```sh
 git clone https://github.com/madhavgupta340/ChainBridge.git
 cd ChainBridge
 npm ci
+cp .env.example .env && chmod 600 .env   # add BLOCKFROST_API_KEY_PREPROD and MODEL_API_KEY
+npm run publish-wallet                    # the agent's publishing wallet: fund it from the Preprod faucet
+npm run demo-wallet                       # optional: a test buyer wallet for demos without a browser wallet
 npm run app
 ```
 
-Open http://127.0.0.1:8787. The app is a guided flow showing one step at a time, with a **Continue** button. A strip at the top always shows where your data is, whether a fingerprint exists, whether anything is published, and any payment. Technical detail sits under **Details for technical users** on each step.
+ChainBridge's receiving address comes from `docs/payment-state.json` (`sellerAddress`), or set `X402_PAY_TO` in `.env`. Fund wallets with test ADA from the [Cardano faucet](https://docs.cardano.org/cardano-testnets/tools/faucet) (network: Preprod).
 
-1. **Upload data.** Click **Messy shipment list (needs tidying)**, or **Payroll export** to focus on privacy.
-2. **Organize data.** Click **Suggest with rules** (no AI), or **Suggest with AI** if a Meta key is set. Review the suggested steps (rename columns, fix dates, yes/no values, spaces, duplicates, sort), untick any you don't want, check the before/after preview, and apply. You can skip this step.
-3. **Review data.** A short preview plus a privacy check: `full_name`/`email` are flagged *Personal*, and `iban`/`gross_salary` *Confidential*, each with a reason. You can change any label. All columns and record selection are behind expandable sections.
-4. **Choose what to publish.** Safe defaults are pre-selected: confidential columns are left out and an extra secret value (salt) is added. "Things to know" lists the privacy limits in plain words.
-5. **Create proof.** Compare *Stays on your device* with *Could be published to Cardano*. Click **Create proof** to get one fingerprint (the Merkle root), then download the proof file.
-6. **Verify a record.** **Check this record** gives ✓ Match. Change any value (e.g. add a space) and check again for ✗ No match.
+Open http://127.0.0.1:8787:
 
-Optionally, open **Paid task — Cardano Preprod test**. Click **Get a price**, review the price, fees and what is sent, tick the approval box, and approve. In demo mode the check runs locally and is labeled *local demo*.
+1. **Upload data:** e.g. **Messy shipment list (needs tidying)**.
+2. **Review data:** check the privacy labels. Private columns are always hidden from the AI.
+3. **Price & payment:** **Get my price** sends only four counts (records, columns, private columns, tidy-up problems) and shows the price with a breakdown. Accept and pay with a **browser wallet** (Lace or Eternl, set to Preprod; you approve in the wallet) or the **demo test wallet**. The payment is signed and checked, not yet sent.
+4. **AI tidy-up (paid):** **Run the AI analysis**, untick anything you disagree with, apply.
+5. **Choose what to publish (paid):** columns to cover, extra secret value, duplicates.
+6. **Fingerprint & publish (paid):** **Create my fingerprint**, then **Publish on Cardano and pay**. That's about a minute: publication, confirmation, then settlement of your payment.
+7. **Your package:** **Download package (.zip)**.
+
+**Verify a record** works at any time after the fingerprint exists: change a value and the check fails.
 
 `npm test` runs all checks.
 
+## How payment works (x402)
+
+[x402](https://developers.cardano.org/x402/) is HTTP-native payment: the service answers **402 Payment Required** with its price, the client pays and retries with proof. ChainBridge uses the `exact` scheme on `cardano:preprod` with direct payment (no escrow), through the official `@x402/cardano` and `@x402/core` libraries (2.26.0) and the Cardano Foundation's hosted Preprod facilitator.
+
+- `GET /x402/session/:id` answers **402** with a `PAYMENT-REQUIRED` header for the quoted price. `POST` with a `PAYMENT-SIGNATURE` header pays.
+- The buyer's wallet **signs** the payment transaction (one output of exactly the price to ChainBridge). The facilitator **verifies** it; nothing is broadcast yet.
+- After the fingerprint is published and confirmed, ChainBridge **settles**: the facilitator broadcasts the signed payment. If publication fails, the payment is never broadcast and the customer is not charged.
+- The signed payment is valid for 30 minutes. Sessions are journalled before every external step; interrupted steps are flagged for inspection, never retried blindly.
+- Trade-off of direct payment: there is no escrow refund. ChainBridge protects the customer by settling only after delivery.
+
+**Pricing** lives in `src/core/pricing.mjs` (placeholder values): base 2 tADA, +0.5 per 1,000 records, +0.25 per private column, +0.25 per tidy-up problem, +0.1 per column beyond 10, between 2 and 20 tADA. It is computed from counts, never by the AI, so it's free, reproducible and explainable. The customer's wallet adds the Cardano network fee (about 0.17 tADA); the agent pays the publication fee from its own wallet.
+
 ## AI organizer (Meta)
 
-The **Organize data** step uses an AI model to analyse a table and suggest a *recipe* of tidy-up steps. The AI never edits the data. ChainBridge validates each suggested step against a fixed list (rename, trim, lowercase, yes/no → true/false, dates → YYYY-MM-DD, numbers, remove column, remove empty/duplicate rows, sort, change a privacy label). Anything else is ignored. The user ticks which steps to keep, and ChainBridge applies them with its own deterministic code. The approved recipe is saved in the private proof file, so *original file + recipe* always rebuilds the same records and fingerprint.
+The paid **AI tidy-up** step uses an AI model to analyse a table and suggest a *recipe* of tidy-up steps. The AI never edits the data. ChainBridge validates each suggested step against a fixed list (rename, trim, lowercase, yes/no → true/false, dates → YYYY-MM-DD, numbers, remove column, remove empty/duplicate rows, sort, change a privacy label). Anything else is ignored. The user ticks which steps to keep, and ChainBridge applies them with its own deterministic code. The approved recipe is saved in the private proof file, so *original file + recipe* always rebuilds the same records and fingerprint.
 
 **Setup:** put a Meta Model API key in `.env` as `MODEL_API_KEY` (from https://dev.meta.ai/). The defaults are `MODEL_API_BASE_URL=https://api.meta.ai/v1` (OpenAI-compatible Chat Completions) and `MODEL_API_MODEL=muse-spark-1.3`. Without a key, the template's `ZAI_*` settings are used if present; otherwise only the built-in rules run. The same key powers the optional plan suggestion in step 4.
 
@@ -74,7 +107,10 @@ The **Organize data** step uses an AI model to analyse a table and suggest a *re
 
 Masking uses the automatic privacy labels. A personal column the rules don't recognise would be sent unmasked, so check the payload preview or choose "column names only" for sensitive files.
 
-## The paid service
+## Alternative: Sokosumi task with Masumi escrow
+
+The template path still works: a Sokosumi task paid through Masumi escrow (1 tUSDM), handled by `worker.mjs` with the `certify` job.
+
 
 The customer pays the ChainBridge agent (1 tUSDM on Preprod, through Masumi escrow) for the full job, called `certify` in `src/core/job.mjs`:
 
@@ -112,7 +148,7 @@ parse → classify → plan → hash   →   quote (price, fees, payload)
 | Sokosumi unpaid | Coworker configured, `PAID_TASKS_ENABLED` not `true` | None |
 | Paid Preprod | Coworker + `PAID_TASKS_ENABLED=true` + confirmed Masumi registration | 1 tUSDM per task via Masumi escrow |
 
-## Prices, fees and costs (kept separate)
+## Prices, fees and costs on the Sokosumi path (kept separate)
 
 - **Service price (to ChainBridge): 1 tUSDM** (test USDM, unit `16a55b2a…0014df10745553444d`, `1000000` atomic units). This is the amount the official template's signed Masumi quote uses, and `paid-task.mjs` rejects any other quote. The team asked for ADA pricing. Switching to lovelace would mean changing `USDM` / `RequestedFunds` in `paid-task.mjs` and `agent-api.mjs`, which has not been tested with Sokosumi Core, so the documented amount was kept.
 - **Cardano network fees:** separate from the service price. Escrow lock, result submission and withdrawal transactions cost test ADA, paid by the respective wallets. ChainBridge does not estimate them, and the UI says "estimate unavailable".
@@ -163,12 +199,14 @@ Never put seed phrases, private keys or API keys in the repo, the browser, promp
 
 ```
 src/core/      ingest.mjs (CSV/JSON) · schema.mjs (types, sensitivity) · recipe.mjs (tidy-up steps) · organize.mjs (AI sample, local rules)
+               pricing.mjs (quote model)
                plan.mjs (planner + validation)
                canonical.mjs · merkle.mjs · commitment.mjs · job.mjs (paid service job) · limits.mjs
 src/server/    main.mjs (HTTP + static) · tasks.mjs (quote/approval/execution) · states.mjs
+               x402-pay.mjs · x402-service.mjs · x402-routes.mjs (x402 payments) · cardano-anchor.mjs (publication)
                config.mjs (mode, price) · sokosumi.mjs (CLI + worker journal) · ai-config.mjs (Meta) · ai-organizer.mjs
                ai-planner.mjs · audit.mjs · store.mjs
-public/        index.html · app.js · ui.js · styles.css
+public/        index.html · app.js · ui.js · wallet.js (CIP-30) · zip.js (package) · styles.css
 chainbridge-answer.mjs   plugs the ChainBridge job into the template worker and MIP-003 API
 worker.mjs, paid-task.mjs, agent-api.mjs, payment-registration.mjs, settlement.mjs …   Masumi template (lightly adapted)
 test/          ChainBridge tests     *.test.mjs   template tests
@@ -178,12 +216,13 @@ Extension points: new connectors (databases, APIs) only need to produce `{source
 
 ## Tests
 
-`npm test` runs 78 tests: the template's 29 plus ChainBridge's 49. They cover the AI organizer (step whitelist, masking, consent, deterministic re-application), parsing (malformed input, limits), canonicalization and hash vectors, sensitivity heuristics and overrides, Merkle proofs, the odd-node rule, empty and duplicate data, modified-record verification, plan validation, AI output sanitization, job input validation, approval gates, duplicate prevention, uncertain outcomes, state transitions, audit privacy, and the HTTP API. These are local tests. A live Sokosumi/Masumi run is still required for track evidence.
+`npm test` runs 89 tests: the template's 29 plus ChainBridge's 60. They cover x402 sessions (no charge before publication, single settlement, oversized or wrong fingerprints refused, invalid payments rejected), pricing, the package ZIP, Cardano publication (idempotent, no blind retries), the AI organizer the AI organizer (step whitelist, masking, consent, deterministic re-application), parsing (malformed input, limits), canonicalization and hash vectors, sensitivity heuristics and overrides, Merkle proofs, the odd-node rule, empty and duplicate data, modified-record verification, plan validation, AI output sanitization, job input validation, approval gates, duplicate prevention, uncertain outcomes, state transitions, audit privacy, and the HTTP API. These are local tests. A live Sokosumi/Masumi run is still required for track evidence.
 
 ## Demo video outline (≤ 2.5 min)
 
-1. 0:00 Problem: teams need to prove exported data wasn't altered, without publishing it.
-2. 0:20 Load the payroll sample, show flagged fields, then the plan and its rationale.
-3. 0:50 Published vs off-chain, compute the root, then show ✓ and a tampered ✗.
-4. 1:30 Quote (price vs fees), approve, then show Sokosumi task status, Masumi payment and tx hash (paid run).
-5. 2:10 Seller receipt evidence and the follow-up comment, then limits.
+1. 0:00 Problem: companies can't prove their spreadsheets weren't edited later, and don't want to publish the data.
+2. 0:15 Upload the messy shipment list, show the privacy labels, then **Get my price**: 4.75 tADA with a breakdown.
+3. 0:40 Accept and pay with a wallet: signed, checked, *not yet charged*.
+4. 1:00 AI tidy-up: Meta's report, before/after, apply. Choose columns, create the fingerprint.
+5. 1:30 **Publish on Cardano and pay**: show the publication and payment transactions on cardanoscan.
+6. 2:00 Download the package, then verify a record and show a tampered value failing. Close on the limits.

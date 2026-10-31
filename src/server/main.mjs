@@ -16,9 +16,11 @@ import {aiSettings} from './ai-config.mjs';
 import {runJob} from '../core/job.mjs';
 import {describeStep} from '../core/recipe.mjs';
 import {PAYMENT_STATUS,TASK_STATES} from './states.mjs';
+import {createX402Routes,x402Settings} from './x402-routes.mjs';
+import {publishFingerprint} from './cardano-anchor.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-const STATIC={'/':'public/index.html','/app.js':'public/app.js','/ui.js':'public/ui.js','/styles.css':'public/styles.css'};
+const STATIC={'/':'public/index.html','/app.js':'public/app.js','/ui.js':'public/ui.js','/zip.js':'public/zip.js','/wallet.js':'public/wallet.js','/styles.css':'public/styles.css'};
 const TYPES={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',mjs:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',csv:'text/csv; charset=utf-8',json:'application/json; charset=utf-8'};
 const HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY',
  'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"};
@@ -30,12 +32,16 @@ function staticPath(pathname){
  return null;
 }
 
-export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbridge'),journalDir=join(root,'.local'),submit,ai=aiPlan,organize=sample=>aiOrganize(sample,{settings:aiSettings()})}={}){
+export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbridge'),journalDir=join(root,'.local'),submit,ai=aiPlan,organize=sample=>aiOrganize(sample,{settings:aiSettings()}),x402}={}){
  const audit=createAuditLog(join(dataDir,'audit.jsonl'));
  const tasks=createTaskService({store:createTaskStore(join(dataDir,'tasks')),audit,config,
   submit:submit??createSokosumiSubmitter(config),readJournal:id=>readWorkerJournal(id,journalDir),
   // Local demo: same job with AI analysis when configured, but never publishes on Cardano.
   run:text=>runJob(text,{describeStep,analyze:aiSettings()?sample=>aiOrganize(sample,{settings:aiSettings()}):undefined})});
+ const x402s=x402??x402Settings(root);
+ const x402Handle=createX402Routes({settings:x402s,dataDir,audit,resourceBase:`http://127.0.0.1:${config.port}`,
+  analyze:aiSettings()?sample=>aiOrganize(sample,{settings:aiSettings()}):undefined,
+  publish:args=>publishFingerprint(args,{walletPath:x402s.publishingWallet,blockfrostKey:x402s.blockfrostKey,journalDir:join(journalDir,'anchors')})});
  const send=(res,status,data)=>{res.writeHead(status,{...HEADERS,'content-type':TYPES.json,'cache-control':'no-store'});res.end(JSON.stringify(data));};
  async function body(req){
   if(!(req.headers['content-type']||'').startsWith('application/json'))throw new TaskError(415,'Expected application/json');
@@ -45,11 +51,14 @@ export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbr
  return createServer(async(req,res)=>{
   try{
    const url=new URL(req.url,'http://127.0.0.1');
+   if(req.method==='POST'){const origin=req.headers.origin;if(origin&&origin!==`http://${req.headers.host}`)return send(res,403,{error:'Cross-origin request refused'});}
+   if(await x402Handle(req,res,url,()=>body(req)))return;
    if(req.method==='GET'){
     const file=staticPath(url.pathname);
     if(file&&existsSync(join(root,file))){res.writeHead(200,{...HEADERS,'content-type':TYPES[file.split('.').pop()],'cache-control':'no-cache'});return res.end(readFileSync(join(root,file)));}
     if(url.pathname==='/api/config')return send(res,200,{mode:config.mode,paid:config.paid,reason:config.reason,ai:config.ai,aiProvider:config.aiProvider??null,network:NETWORK,limits:LIMITS,
-     price:config.paid?SERVICE_PRICE:null,quote:quoteFor(config),taskStates:TASK_STATES,paymentStatus:PAYMENT_STATUS});
+     price:config.paid?SERVICE_PRICE:null,quote:quoteFor(config),taskStates:TASK_STATES,paymentStatus:PAYMENT_STATUS,
+     x402:{enabled:x402s.enabled,reason:x402s.reason}});
     if(url.pathname==='/api/tasks')return send(res,200,tasks.list().map(publicTask));
     let m=url.pathname.match(/^\/api\/tasks\/([0-9a-f-]{36})$/);
     if(m){const t=tasks.refresh(m[1]);return send(res,200,publicTask(t));}

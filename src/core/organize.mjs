@@ -79,3 +79,6 @@ export function suggestRecipeLocally({records,fields}){
  if(dateCol)steps.push({op:'sort',by:[...(group?[{column:col(group.name),direction:'asc'}]:[]),{column:dateCol,direction:'asc'}],reason:group?`Group rows by "${col(group.name)}", then put them in date order.`:'Put rows in date order.'});
  return {summary:steps.length?`Found ${steps.length} thing(s) to tidy up using simple rules.`:'The data already looks tidy. No changes suggested.',steps,source:'rules'};
 }
+
+// Number of concrete clean-up problems (used for pricing): every suggested step except cosmetic renames and sorting.
+export const countTidyIssues=data=>suggestRecipeLocally(data).steps.filter(s=>s.op!=='rename'&&s.op!=='sort').length;

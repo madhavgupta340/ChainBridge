@@ -21,3 +21,4 @@ Do not claim live execution, registration, or seller payment without measured ev
 - The agent publishes only the fingerprint, record count and job reference on Cardano (metadata label 674), once per job, from its dedicated Preprod publishing wallet (`.local/publishing-wallet.json`, never committed).
 - No payment, task submission or publication without the approval gate in `src/server/tasks.mjs`. Uncertain external writes go to `needs_inspection`; never add automatic retries.
 - Task and payment states come from local actions or saved Sokosumi/MPS responses. Never fabricate transaction hashes, receipts or confirmations.
+- The main paid flow is x402 (`src/server/x402-*.mjs`): settle the buyer's signed payment only after the fingerprint is published; never settle twice; keep pricing deterministic in `src/core/pricing.mjs` (never priced by AI).
