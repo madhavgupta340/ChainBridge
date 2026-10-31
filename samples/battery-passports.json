@@ -1,0 +1,116 @@
+[
+  {
+    "passport_id": "BP-DE-2026-000418",
+    "model": "NK-PowerPack 210",
+    "chemistry": "LFP",
+    "rated_capacity_kwh": 210,
+    "carbon_footprint_kg_co2e_per_kwh": 61.4,
+    "recycled_content_pct": {
+      "lithium": 16,
+      "nickel": 6,
+      "cobalt": null
+    },
+    "cobalt_due_diligence": "not applicable (cobalt-free)",
+    "manufacturing_site": "Electrovolt Cells Kft., Debrecen, HU",
+    "manufacturing_date": "2026-08-12",
+    "state_of_health_pct": 100,
+    "economic_operator": "Nordmann Kranbau GmbH",
+    "operator_contact": "service.batteries@nordmann-kranbau.example",
+    "note": "Fictional sample for the ChainBridge demo"
+  },
+  {
+    "passport_id": "BP-DE-2026-000419",
+    "model": "NK-PowerPack 210",
+    "chemistry": "LFP",
+    "rated_capacity_kwh": 210,
+    "carbon_footprint_kg_co2e_per_kwh": 61.4,
+    "recycled_content_pct": {
+      "lithium": 16,
+      "nickel": 6,
+      "cobalt": null
+    },
+    "cobalt_due_diligence": "not applicable (cobalt-free)",
+    "manufacturing_site": "Electrovolt Cells Kft., Debrecen, HU",
+    "manufacturing_date": "2026-08-12",
+    "state_of_health_pct": 100,
+    "economic_operator": "Nordmann Kranbau GmbH",
+    "operator_contact": "service.batteries@nordmann-kranbau.example",
+    "note": "Fictional sample for the ChainBridge demo"
+  },
+  {
+    "passport_id": "BP-DE-2026-000420",
+    "model": "NK-PowerPack 420",
+    "chemistry": "NMC 811",
+    "rated_capacity_kwh": 420,
+    "carbon_footprint_kg_co2e_per_kwh": 73.9,
+    "recycled_content_pct": {
+      "lithium": 12,
+      "nickel": 4,
+      "cobalt": 14
+    },
+    "cobalt_due_diligence": "OECD-aligned audit 2026-06, DRC artisanal sources excluded",
+    "manufacturing_site": "Electrovolt Cells Kft., Debrecen, HU",
+    "manufacturing_date": "2026-08-19",
+    "state_of_health_pct": 100,
+    "economic_operator": "Nordmann Kranbau GmbH",
+    "operator_contact": "service.batteries@nordmann-kranbau.example",
+    "note": "Fictional sample for the ChainBridge demo"
+  },
+  {
+    "passport_id": "BP-DE-2026-000421",
+    "model": "NK-PowerPack 420",
+    "chemistry": "NMC 811",
+    "rated_capacity_kwh": 420,
+    "carbon_footprint_kg_co2e_per_kwh": 74.2,
+    "recycled_content_pct": {
+      "lithium": 12,
+      "nickel": 4,
+      "cobalt": 14
+    },
+    "cobalt_due_diligence": "OECD-aligned audit 2026-06, DRC artisanal sources excluded",
+    "manufacturing_site": "Electrovolt Cells Kft., Debrecen, HU",
+    "manufacturing_date": "2026-08-19",
+    "state_of_health_pct": 99.6,
+    "economic_operator": "Nordmann Kranbau GmbH",
+    "operator_contact": "j.wagner@nordmann-kranbau.example",
+    "note": "Fictional sample for the ChainBridge demo"
+  },
+  {
+    "passport_id": "BP-DE-2026-000422",
+    "model": "NK-PowerPack 420",
+    "chemistry": "NMC 811",
+    "rated_capacity_kwh": 420,
+    "carbon_footprint_kg_co2e_per_kwh": 88.7,
+    "recycled_content_pct": {
+      "lithium": 12,
+      "nickel": 4,
+      "cobalt": 14
+    },
+    "cobalt_due_diligence": "OECD-aligned audit 2026-06, DRC artisanal sources excluded",
+    "manufacturing_site": "Shenzhen Aurora Energy Co., CN",
+    "manufacturing_date": "2026-09-02",
+    "state_of_health_pct": 100,
+    "economic_operator": "Nordmann Kranbau GmbH",
+    "operator_contact": "j.wagner@nordmann-kranbau.example",
+    "note": "Fictional sample for the ChainBridge demo"
+  },
+  {
+    "passport_id": "BP-DE-2026-000423",
+    "model": "NK-PowerPack 210",
+    "chemistry": "LFP",
+    "rated_capacity_kwh": 210,
+    "carbon_footprint_kg_co2e_per_kwh": 59.8,
+    "recycled_content_pct": {
+      "lithium": 18,
+      "nickel": 7,
+      "cobalt": null
+    },
+    "cobalt_due_diligence": "not applicable (cobalt-free)",
+    "manufacturing_site": "Electrovolt Cells Kft., Debrecen, HU",
+    "manufacturing_date": "2026-09-09",
+    "state_of_health_pct": 100,
+    "economic_operator": "Nordmann Kranbau GmbH",
+    "operator_contact": "service.batteries@nordmann-kranbau.example",
+    "note": "Fictional sample for the ChainBridge demo"
+  }
+]

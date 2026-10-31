@@ -20,6 +20,7 @@ import {checkRecipe,applyRecipe,recipeRecord,describeStep} from '/core/recipe.mj
 import {buildAiSample,suggestRecipeLocally,countTidyIssues} from '/core/organize.mjs';
 import {measure,measureDocuments,ada,PRICING} from '/core/pricing.mjs';
 import {describeDocument,sha256Hex,recordsFromExtractions,DOC_LIMITS} from '/core/documents.mjs';
+import {xlsxRows,rowsToCsv} from '/core/office.mjs';
 import {fileProof} from '/core/certificate.mjs';
 
 // area: 'seal' (create a fingerprint, the paid flow) or 'check' (check a document against a certificate, free).
@@ -171,7 +172,26 @@ async function loadText(name,text,byteLength,sha256){
   toast(`Loaded ${data.records.length} records`,'ok');
  }catch(e){S.data=null;S.plan=null;S.loadError=e.message;changed();}
 }
-const isTable=name=>/\.(csv|json)$/i.test(name);
+// Upload-step samples: one per file format, across industries. All fictional. [file, label, domain, format]
+const SAMPLES=[
+ ['steel-mill-test-certificate.pdf','Steel mill test certificate (EN 10204 3.1)','Manufacturing','PDF'],
+ ['framework-supply-agreement.docx','Framework supply agreement','Legal & procurement','Word'],
+ ['cold-chain-temperature-log.xlsx','Vaccine cold-chain temperature log','Pharma logistics','Excel'],
+ ['customs-export-declaration.xml','Customs export declaration','Trade & customs','XML'],
+ ['battery-passports.json','EU battery passports','Compliance','JSON'],
+ ['bill-of-lading-photo.jpg','Bill of lading, photographed on site','Shipping','Photo'],
+ ['emissions-dashboard.png','Scope 1–3 emissions dashboard','ESG reporting','Screenshot'],
+ ['car-inspection-report.pdf','Vehicle inspection report','Automotive','PDF'],
+];
+const isTable=name=>/\.(csv|json|xlsx)$/i.test(name);
+// An Excel workbook is read in this browser: its first worksheet becomes CSV text for the same table parser.
+// The fingerprint's file leaf still uses the workbook's own bytes.
+async function tableText(name,bytes){
+ if(!/\.xlsx$/i.test(name))return new TextDecoder().decode(bytes);
+ const rows=await xlsxRows(bytes);
+ if(!rows.length)throw new Error('The first worksheet is empty.');
+ return rowsToCsv(rows);
+}
 async function onFiles(list){
  const files=[...(list||[])];if(!files.length)return;
  const L=S.config.limits;
@@ -179,14 +199,15 @@ async function onFiles(list){
   const file=files[0];
   if(file.size>L.maxBytes){S.loadError=`This file is ${(file.size/1048576).toFixed(1)} MB. The limit is ${L.maxBytes/1048576} MB.`;return render();}
   const bytes=new Uint8Array(await file.arrayBuffer());
-  return loadText(file.name,new TextDecoder().decode(bytes),file.size,await sha256Hex(bytes));
+  let text;try{text=await tableText(file.name,bytes);}catch(e){S.loadError=`${file.name}: ${e.message}`;return render();}
+  return loadText(file.name,text,file.size,await sha256Hex(bytes));
  }
- if(files.some(f=>isTable(f.name))){S.loadError='Load one spreadsheet, or one or more documents (PDFs, photos, screenshots), not both at once.';return render();}
+ if(files.some(f=>isTable(f.name))){S.loadError='Load one spreadsheet, or one or more documents (PDF, Word, XML, photos, screenshots), not both at once.';return render();}
  loadDocuments(files);
 }
 async function loadSample(name){
  try{const res=await fetch(`/samples/${name}`);if(!res.ok)throw new Error();
-  if(isTable(name)){const bytes=new Uint8Array(await res.arrayBuffer());loadText(name,new TextDecoder().decode(bytes),bytes.length,await sha256Hex(bytes));}else loadDocuments([new File([await res.blob()],name)]);}
+  if(isTable(name)){const bytes=new Uint8Array(await res.arrayBuffer());loadText(name,await tableText(name,bytes),bytes.length,await sha256Hex(bytes));}else loadDocuments([new File([await res.blob()],name)]);}
  catch{S.loadError='Could not load the sample file.';render();}
 }
 const b64=bytes=>{let t='';for(let i=0;i<bytes.length;i+=32768)t+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(t);};
@@ -271,30 +292,27 @@ function versionBanner(){
 }
 function viewUpload(){
  const L=S.config.limits,d=S.data;
- const input=h('input',{type:'file',id:'file',multiple:true,accept:'.csv,.json,.pdf,.png,.jpg,.jpeg,.webp,.gif',class:'visually-hidden',onchange:e=>onFiles(e.target.files)});
+ const input=h('input',{type:'file',id:'file',multiple:true,accept:'.csv,.json,.xlsx,.pdf,.docx,.xml,.png,.jpg,.jpeg,.webp,.gif',class:'visually-hidden',onchange:e=>onFiles(e.target.files)});
  return [
   h('section',{class:'hero'},
    h('div',{},
     h('div',{class:'eyebrow'},h('span',{class:'num'},`Step 01 / ${pad(steps().length)}`),h('span',{},'Data integrity agent on Cardano')),
     h('h1',{tabindex:-1},'Seal your data.',h('br'),'Prove it later',h('span',{class:'dot'},'.')),
-    h('p',{class:'lead'},'ChainBridge reads your documents and spreadsheets with AI (PDFs, photos, screenshots, CSV), picks out the facts that matter, seals them with a digital fingerprint, and publishes that fingerprint on the Cardano blockchain. You see the price first, and pay only when the fingerprint is published.')),
+    h('p',{class:'lead'},'ChainBridge reads your documents and spreadsheets with AI (PDF, Word, XML, photos, screenshots, Excel, CSV, JSON), picks out the facts that matter, seals them with a digital fingerprint, and publishes that fingerprint on the Cardano blockchain. You see the price first, and pay only when the fingerprint is published.')),
    drawing()),
   versionChoice(),
   h('div',{class:'upload'},input,
    h('label',{for:'file',class:'drop',ondragover:e=>{e.preventDefault();e.currentTarget.classList.add('over');},ondragleave:e=>e.currentTarget.classList.remove('over'),
     ondrop:e=>{e.preventDefault();e.currentTarget.classList.remove('over');onFiles(e.dataTransfer.files);}},
-    h('strong',{},'Choose documents or a spreadsheet'),h('span',{},'PDF, photo, screenshot, CSV or JSON. Drag them here.'),
+    h('strong',{},'Choose documents or a spreadsheet'),h('span',{},'PDF, Word, XML, photo or screenshot · or one Excel, CSV or JSON table. Drag them here.'),
     h('small',{},`Up to ${DOC_LIMITS.maxFiles} documents (${DOC_LIMITS.maxBytes/1048576} MB, ${DOC_LIMITS.maxPages} pages each), or one spreadsheet with up to ${L.maxRows.toLocaleString('en')} records. Nothing is uploaded until you pay and agree.`)),
    h('div',{class:'samples'},
     h('button',{class:'check-cta',type:'button',onclick:()=>setArea('check')},icon('check'),
      h('span',{class:'check-cta-text'},h('strong',{},'Received a sealed document?'),h('span',{},'Check your copy here. Free, nothing is uploaded.')),
      h('span',{class:'check-cta-arrow','aria-hidden':'true'},'→')),
-    h('p',{},'Or try a sample:'),
-    h('button',{class:'btn',type:'button',onclick:()=>loadSample('car-inspection-report.pdf')},'Car inspection report (PDF)'),
-    h('button',{class:'btn',type:'button',onclick:()=>loadSample('car-inspection-photo.png')},'Photo of an inspection report (image)'),
-    h('button',{class:'btn',type:'button',onclick:()=>loadSample('messy-shipments.csv')},'Messy shipment list (CSV)'),
-    h('button',{class:'btn',type:'button',onclick:()=>loadSample('supplier-certificates.csv')},'Supplier inspection certificates'),
-    h('button',{class:'btn',type:'button',onclick:()=>loadSample('payroll-export.json')},'Payroll export (JSON, personal data)'))),
+    h('p',{},'Or try a sample (fictional):'),
+    SAMPLES.map(([file,label,domain,format])=>h('button',{class:'btn sample',type:'button',onclick:()=>loadSample(file)},
+     h('span',{class:'sample-text'},h('span',{},label),h('small',{},domain)),h('span',{class:'sample-format'},format))))),
   S.loadError&&note('error',h('strong',{},'We couldn\'t read that file. '),S.loadError),
   S.mode==='table'&&d&&note('ok',h('strong',{},`Loaded ${d.name}. `),`${d.records.length} records, ${d.fields.length} columns.`),
   S.mode==='documents'&&S.docs.length&&note('ok',h('strong',{},`Loaded ${S.docs.length} document(s). `),S.docs.map(x=>`${x.name} (${x.pages} page${x.pages>1?'s':''})`).join(', ')),

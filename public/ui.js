@@ -94,7 +94,7 @@ export function working({id,title,phases=[],usual}){
  if(!startedAt.has(id))startedAt.set(id,Date.now());
  const since=startedAt.get(id);
  const phaseEl=h('p',{class:'work-phase'}),timeEl=h('span',{class:'work-time'});
- const lines=[0,1,2,3,4,5].map(i=>svg('line',{class:'work-line',x1:10,x2:i%3===2?34:46,y1:24+i*8,y2:24+i*8,style:`animation-delay:${i*.22}s`}));
+ const lines=[0,1,2,3,4,5].map(i=>svg('line',{class:'work-line',x1:10,x2:i%3===2?34:46,y1:24+i*8,y2:24+i*8}));
  const art=h('div',{class:'work-art','aria-hidden':'true'},
   svg('svg',{viewBox:'0 0 56 72'},svg('path',{class:'work-doc',d:'M4 2h34l14 14v54H4Z'}),svg('path',{class:'work-doc',d:'M38 2v14h14'}),lines),
   h('span',{class:'work-scan'}));

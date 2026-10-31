@@ -2,6 +2,8 @@
 // The model reads the whole document and proposes facts worth sealing; the reply is constrained to a JSON schema,
 // then sanitized here. It is advice: the user confirms every fact before it is fingerprinted.
 // Document text is data, never instructions (prompt-injection safe by design: nothing the model says is executed).
+import {DOC_TYPES} from '../core/documents.mjs';
+import {docxText,xmlText} from '../core/office.mjs';
 import {chat,extractJson} from './ai-config.mjs';
 
 export const FIELD_TYPES=['text','number','date','boolean','identifier','amount','list'];
@@ -56,7 +58,13 @@ export function sanitizeExtraction(raw){
 }
 
 // The content part Meta's Chat Completions API expects for each document type.
-export function documentPart({name,mime,data}){
+// Word and XML go to the AI as extracted text; the original file is what gets fingerprinted.
+export async function documentPart({name,mime,data}){
+ if(mime===DOC_TYPES.docx||mime===DOC_TYPES.xml){
+  const bytes=new Uint8Array(Buffer.from(data,'base64'));
+  const text=mime===DOC_TYPES.docx?await docxText(bytes):xmlText(bytes);
+  return {type:'text',text:`Contents of "${name}" (${mime===DOC_TYPES.docx?'Word document, extracted as text; tables use " | " between cells':'XML file, as written'}):\n\n${text}`};
+ }
  if(mime==='application/pdf')return {type:'file',file:{filename:name,file_data:`data:application/pdf;base64,${data}`}};
  return {type:'image_url',image_url:{url:`data:${mime};base64,${data}`}};
 }
@@ -64,7 +72,7 @@ export function documentPart({name,mime,data}){
 export async function extractDocument(doc,{settings,fetchImpl}={}){
  if(!settings)throw new Error('No AI provider configured');
  const messages=[{role:'system',content:SYSTEM},{role:'user',content:[
-  {type:'text',text:`Extract the verifiable facts from this ${doc.mime==='application/pdf'?'PDF document':'image'} ("${doc.name}").`},documentPart(doc)]}];
+  {type:'text',text:`Extract the verifiable facts from this ${doc.mime==='application/pdf'?'PDF document':doc.mime===DOC_TYPES.docx?'Word document':doc.mime===DOC_TYPES.xml?'XML file':'image'} ("${doc.name}").`},await documentPart(doc)]}];
  const text=await chat(settings,messages,{fetchImpl,timeoutMs:180000,responseFormat:{type:'json_schema',json_schema:SCHEMA}});
  let parsed;try{parsed=JSON.parse(text);}catch{parsed=extractJson(text);}
  return {...sanitizeExtraction(parsed),provider:settings.provider,model:settings.model};

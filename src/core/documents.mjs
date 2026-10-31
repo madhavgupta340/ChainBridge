@@ -1,8 +1,12 @@
-// Documents (PDFs, photos, screenshots) for AI extraction. Used in the browser and on the server.
+// Documents (PDFs, photos, screenshots, Word files, XML) for AI extraction. Used in the browser and on the server.
+// Word and XML are sent to the AI as text (extracted by src/core/office.mjs); PDFs and images as files.
 // The file type is decided from the file's own bytes, never from its name, and pages are counted locally
 // so the price is known before anything is sent to the AI.
 export const DOC_LIMITS=Object.freeze({maxFiles:10,maxBytes:10*1024*1024,maxPages:40,maxTotalBytes:25*1024*1024});
-export const DOC_TYPES={pdf:'application/pdf',png:'image/png',jpeg:'image/jpeg',webp:'image/webp',gif:'image/gif'};
+import {officeKind,looksLikeXml,docxPages,xmlPages} from './office.mjs';
+export const DOC_TYPES={pdf:'application/pdf',png:'image/png',jpeg:'image/jpeg',webp:'image/webp',gif:'image/gif',
+ docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',xml:'application/xml'};
+export const TEXT_TYPES=new Set(['docx','xml']);
 
 export function sniffType(bytes){
  const b=bytes,s=(i,n)=>String.fromCharCode(...b.slice(i,i+n));
@@ -11,6 +15,8 @@ export function sniffType(bytes){
  if(b.length>3&&b[0]===0xff&&b[1]===0xd8&&b[2]===0xff)return 'jpeg';
  if(b.length>12&&s(0,4)==='RIFF'&&s(8,4)==='WEBP')return 'webp';
  if(b.length>6&&(s(0,6)==='GIF87a'||s(0,6)==='GIF89a'))return 'gif';
+ const office=officeKind(b);if(office)return office;
+ if(looksLikeXml(b))return 'xml';
  return null;
 }
 
@@ -24,9 +30,11 @@ export function countPdfPages(bytes){
 
 export function describeDocument(name,bytes){
  const type=sniffType(bytes);
- if(!type)throw new Error(`${name}: not a supported file. Use PDF, PNG, JPEG, WebP or GIF.`);
+ if(type==='xlsx')throw new Error(`${name}: this is an Excel spreadsheet. Load it on its own, as a spreadsheet.`);
+ if(!type)throw new Error(`${name}: not a supported file. Use PDF, Word (.docx), XML, PNG, JPEG, WebP or GIF.`);
  if(bytes.length>DOC_LIMITS.maxBytes)throw new Error(`${name}: ${(bytes.length/1048576).toFixed(1)} MB. The limit is ${DOC_LIMITS.maxBytes/1048576} MB per document.`);
- const pages=type==='pdf'?countPdfPages(bytes):1;
+ // Word and XML pages are estimated from their size (for the price).
+ const pages=type==='pdf'?countPdfPages(bytes):type==='docx'?docxPages(bytes):type==='xml'?xmlPages(bytes):1;
  if(pages>DOC_LIMITS.maxPages)throw new Error(`${name}: ${pages} pages. The limit is ${DOC_LIMITS.maxPages} pages per document.`);
  return {name:String(name).slice(0,120),type,mime:DOC_TYPES[type],bytes:bytes.length,pages};
 }

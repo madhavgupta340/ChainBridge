@@ -40,8 +40,8 @@ test('AI output is sanitized: keys, enums, limits, reserved names, duplicates',(
  assert.equal(r.omitted[0].what,'terms');
 });
 test('Meta request: PDFs as file parts, images as data URLs, with a JSON schema answer format',async()=>{
- assert.deepEqual(documentPart({name:'a.pdf',mime:'application/pdf',data:'QQ=='}),{type:'file',file:{filename:'a.pdf',file_data:'data:application/pdf;base64,QQ=='}});
- assert.deepEqual(documentPart({name:'a.png',mime:'image/png',data:'QQ=='}),{type:'image_url',image_url:{url:'data:image/png;base64,QQ=='}});
+ assert.deepEqual(await documentPart({name:'a.pdf',mime:'application/pdf',data:'QQ=='}),{type:'file',file:{filename:'a.pdf',file_data:'data:application/pdf;base64,QQ=='}});
+ assert.deepEqual(await documentPart({name:'a.png',mime:'image/png',data:'QQ=='}),{type:'image_url',image_url:{url:'data:image/png;base64,QQ=='}});
  let body;
  const fetchImpl=async(url,opts)=>{body=JSON.parse(opts.body);return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify({documentType:'invoice',title:'t',summary:'s',language:'en',fields:[{key:'total',label:'Total',value:'12 EUR',type:'amount',sensitivity:'confidential',relevant:true,reason:'',evidence:'Total 12 EUR',confidence:0.9}],omitted:[]})}}]})};};
  const r=await extractDocument({name:'a.pdf',mime:'application/pdf',data:'QQ=='},{settings:{provider:'Meta',apiKey:'k',baseUrl:'https://api.meta.ai/v1',model:'muse-spark-1.3'},fetchImpl});

@@ -462,6 +462,7 @@ td.changed-cell{color:var(--signal);font-weight:500}
 .work-art svg{width:56px;height:72px;display:block}
 .work-doc{fill:var(--paper);stroke:var(--ink-2);stroke-width:1.5;stroke-linejoin:round}
 .work-line{stroke:var(--ink-3);stroke-width:2.5;stroke-linecap:round;animation:work-read 1.8s ease-in-out infinite}
+.work-line:nth-of-type(1){animation-delay:0.0s}.work-line:nth-of-type(2){animation-delay:0.22s}.work-line:nth-of-type(3){animation-delay:0.44s}.work-line:nth-of-type(4){animation-delay:0.66s}.work-line:nth-of-type(5){animation-delay:0.88s}.work-line:nth-of-type(6){animation-delay:1.1s}
 .work-scan{position:absolute;left:-6px;right:-6px;height:2px;top:8px;background:var(--signal);box-shadow:0 0 12px 2px var(--signal-bg),0 0 4px var(--signal);animation:work-scan 1.8s cubic-bezier(.45,0,.55,1) infinite alternate}
 .work-title{display:block;font-size:1.15rem;font-weight:400;letter-spacing:-.02em}
 .work-phase{margin:.3rem 0 .8rem;color:var(--ink-2);min-height:1.4em}
@@ -561,3 +562,11 @@ td.changed-cell{color:var(--signal);font-weight:500}
 @media (max-width:560px){.vhist{padding:1rem}.vhist-head{flex-direction:column}.vnode{grid-template-columns:1.9rem minmax(0,1fr);gap:.6rem}.vdot{width:1.9rem;height:1.9rem}.vnode:not(:last-child)::before{left:.95rem;top:1.9rem}.vwhen{margin-left:0;width:100%}}
 .entry-banner{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;border:1px solid var(--signal);background:var(--signal-bg);padding:.7rem 1rem;margin:0 0 1.6rem}
 @media (max-width:640px){.terms{grid-template-columns:1fr}.vprev .row{flex-wrap:wrap}}
+
+/* ---------- upload samples ---------- */
+.samples .btn.sample{align-items:center;gap:1rem;padding:.75rem 1.1rem}
+.samples .btn.sample::after{content:none}
+.sample-text{display:grid;gap:.1rem;min-width:0}
+.sample-text small{font-family:var(--mono);font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.btn.sample:hover .sample-text small{color:inherit;opacity:.7}
+.sample-format{flex:none;font-family:var(--mono);font-size:.6rem;letter-spacing:.07em;text-transform:uppercase;border:1px solid currentColor;padding:.15rem .4rem;opacity:.75}

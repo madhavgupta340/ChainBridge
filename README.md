@@ -18,7 +18,7 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification, shareable file checks, linked certificate versions. 112 automated tests. |
+| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification, shareable file checks, linked certificate versions, Excel/Word/XML input. 118 automated tests. |
 | Gets paid on Cardano | **Met (test network)** | x402 payment of 4.75 tADA, settled on Preprod only after publication (below). Also two Masumi escrow payments via Sokosumi. |
 | Does the job on Cardano | **Met (test network)** | Fingerprints published as transaction metadata, read back from the chain. |
 | Reads unstructured documents | **Met (test network)** | A 2-page PDF inspection report: 30 facts extracted, boilerplate and a planted instruction ignored, sealed and published (below). |
@@ -104,7 +104,36 @@ Open http://127.0.0.1:8787:
 
 `npm test` runs all checks.
 
-## Documents (PDF, photos, screenshots)
+## Documents (PDF, Word, XML, photos, screenshots)
+
+**Formats:**
+- **Documents:** PDF, Word (.docx), XML, PNG, JPEG, WebP and GIF.
+- **Tables:** Excel (.xlsx), CSV and JSON.
+
+**How the new formats are read:** Excel, Word and XML are read by `src/core/office.mjs`, with no extra library: a small zip reader plus the built-in `DecompressionStream`, with size and entry limits against zip bombs.
+- **Excel:** the first worksheet goes through the normal table parser.
+- **Word and XML:** sent to the AI as text, with Word tables kept as `cell | cell` rows.
+
+The fingerprint always uses the original file's bytes. Pages for Word and XML are estimated from their size, for the price.
+
+**Samples on the upload step** (all fictional, one per format):
+
+| Sample | Domain | Format |
+|---|---|---|
+| Steel mill test certificate (EN 10204 3.1) | Manufacturing | PDF |
+| Framework supply agreement | Legal and procurement | Word |
+| Vaccine cold-chain temperature log | Pharma logistics | Excel |
+| Customs export declaration | Trade and customs | XML |
+| EU battery passports | Compliance | JSON |
+| Bill of lading, photographed on site | Shipping | Photo |
+| Scope 1–3 emissions dashboard | ESG reporting | Screenshot |
+| Vehicle inspection report | Automotive | PDF |
+
+Notes on what the samples test:
+- **The cold-chain log is deliberately messy:** mixed date formats, °F mixed with °C, a duplicate row and a 9.4 °C excursion.
+- **The customs XML and the car report contain planted instructions.** The AI ignored both in testing.
+- **The older samples** (`messy-shipments.csv`, `supplier-certificates.csv`, `payroll-export.json`, `car-inspection-photo.png`) stay in `samples/` for the tests.
+
 
 Up to 10 documents per job (10 MB and 40 pages each). The file type is detected from the bytes and pages are counted locally, so the price is known before anything is sent. After payment and an explicit consent, each document goes to Meta's `muse-spark-1.3` (Chat Completions, PDF as a `file` part, images as data URLs) with a strict JSON schema answer format. ChainBridge then cleans every field (`src/server/ai-extract.mjs`):
 
@@ -320,7 +349,7 @@ Extension points: new connectors (databases, APIs) only need to produce `{source
 
 ## Tests
 
-`npm test` runs 112 tests: the template's 29 plus ChainBridge's 83. They cover linked certificate versions (metadata, predecessor checks, chain rebuilding with gaps, repeats, other series, loops, missing transactions and outages, nothing stored) and shareable verification:
+`npm test` runs 118 tests: the template's 29 plus ChainBridge's 89. They cover Excel, Word and XML reading (type detection, table rows, zip limits, text sent to the AI, every sample loads). They cover linked certificate versions (metadata, predecessor checks, chain rebuilding with gaps, repeats, other series, loops, missing transactions and outages, nothing stored) and shareable verification:
 
 - file leaves and their privacy;
 - tampered certificates and proofs;
