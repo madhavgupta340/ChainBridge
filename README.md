@@ -14,6 +14,77 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 
 > **Test network only.** Preprod test tokens have no real value. A fingerprint shows whether data matches what was sealed. It does **not** prove the source data was accurate.
 
+## Walkthrough in screenshots
+
+Recorded on 31 Oct 2026 from the running app on Cardano Preprod (test network, test ADA only). The sample documents are fictional.
+
+### 1. Seal a document (paid)
+
+**The two things ChainBridge does:** seal a document (paid) or check one you received (free).
+![Home: Seal or Check](docs/screenshots/01-home.png)
+
+**Upload:** choose "Create new certificate" or "Add a version", then drop a file or pick a sample: PDF, Word, Excel, XML, JSON, photo or screenshot.
+![Upload and samples](docs/screenshots/02-upload-and-samples.png)
+
+**Review:** the file type is detected from the bytes, pages are counted, and a SHA-256 fingerprint of the file is computed. All of this happens on your device.
+![Review documents](docs/screenshots/03-review-documents.png)
+
+**Price:** free and calculated from counts, never by AI.
+![Price](docs/screenshots/04-price.png)
+
+**Pay with x402:** your own wallet is shown but locked for the demo, which uses our test wallet.
+![Payment choice](docs/screenshots/05-payment-choice.png)
+
+**Authorised:** the payment is signed and checked, **but not charged yet**.
+![Payment authorised](docs/screenshots/06-payment-authorised.png)
+
+**AI reading:** after explicit consent, Meta's AI reads the document.
+![AI reading](docs/screenshots/07-ai-reading.png)
+
+**Facts:** the AI returns the facts with their source words. You confirm or edit them.
+![AI facts](docs/screenshots/08-ai-facts.png)
+
+**Choose what to seal:** private columns are excluded by default.
+![Choose what to publish](docs/screenshots/09-choose-what-to-publish.png)
+
+**Fingerprint:** created in the browser. The page shows what stays on your device and what goes on Cardano (only the fingerprint, the series and version, and references).
+![Fingerprint and publish](docs/screenshots/10-fingerprint-and-publish.png)
+
+**Published, then paid:** the agent publishes the fingerprint on Cardano, and only then is the payment settled. Both transaction links are shown.
+![Published and paid](docs/screenshots/11-published-and-paid.png)
+
+### 2. The package
+
+**Package:** the data, report, certificate and private proof file.
+![Package](docs/screenshots/12-package.png)
+
+**Share a check:** a link and QR code per original file, plus this certificate's version history, read from Cardano.
+![Share link, QR and version history](docs/screenshots/13-share-link-and-qr.png)
+
+### 3. Check a document (free)
+
+**Two slots:** the recipient adds the certificate and their copy of the file. The file is checked in the browser and never uploaded.
+![Check: file matches](docs/screenshots/15-check-matches.png)
+
+**Four separate checks:** file match, Cardano record, version link and issuer signature.
+![Check results](docs/screenshots/16-check-results.png)
+
+**Earlier versions:** rebuilt from Cardano by following each version's link. There's no database.
+![Version history](docs/screenshots/17-check-version-history.png)
+
+**A different file is caught:** here the old report (version 1) is checked against version 2's certificate.
+![Different file](docs/screenshots/18-check-different-file.png)
+
+### 4. Versions and the public page
+
+**Add a version:** paste the latest certificate's transaction. ChainBridge reads it from Cardano and continues the series.
+![Add a version](docs/screenshots/19-add-a-version.png)
+
+**Public check page (GitHub Pages):** the same check with no server.
+- **Link:** https://madhavgupta340.github.io/ChainBridge/
+- **Here:** a certificate is loaded and the page is waiting for the file.
+![Public check page](docs/screenshots/20-public-check-page.png)
+
 ## Track status (honest)
 
 | Requirement | Status | Evidence |
@@ -25,6 +96,16 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 | Runs as a Sokosumi Coworker (alternative path) | **Met** | Coworker `01a18d16-b119-7273-8778-92bb94281ffa` completed paid Tasks with verified seller receipts. |
 
 ### Evidence log (Cardano Preprod, 2026-10-31; test tokens, no real value)
+
+**Demo chain: car report, initial inspection, then re-inspection** (series `s-9a6d0b4bb78dba8a`, files in `samples/`):
+
+- **Version 1** (`car-inspection-v1-initial.pdf`, failed), published in block 5357356: [`8394e5ad…ff4462`](https://preprod.cardanoscan.io/transaction/8394e5ad484475b761969976119da9bc31b05a34ae029de107645358d0ff4462). Paid 2.75 tADA: [`747071a5…2f75b7`](https://preprod.cardanoscan.io/transaction/747071a57c84b51b88f5ec9a27c2b2faaeba3532e40ab12ad4537f795c2f75b7)
+- **Version 2** (`car-inspection-v2-reinspection.pdf`, passed, linked to version 1), published in block 5357363: [`feddf8ef…c4ef58`](https://preprod.cardanoscan.io/transaction/feddf8ef48a33c93e68d541d4b6eac595dcc0e4c263b517670b64a42aac4ef58). Paid 2.75 tADA: [`8ffb4012…2b7e670`](https://preprod.cardanoscan.io/transaction/8ffb40123ba6affa67f53534cf968a45a388bd14de7a5c9c44b8d14c23b7e670)
+- **Check tab with version 2's certificate:**
+  - **Version 2 PDF:** all four checks Valid, and "2 versions, each linked to the one before, back to version 1".
+  - **Version 1 PDF:** "✗ This file is different".
+
+**Steel mill test certificate** (used for the screenshots), published in block 5357475: [`dbba8c27…c347fb`](https://preprod.cardanoscan.io/transaction/dbba8c274d169ffa98facc6231e92e50909604e0c2671f1a7af4aa7a88c347fb). Paid 2.75 tADA: [`578d327d…fba66a`](https://preprod.cardanoscan.io/transaction/578d327d5a64c38bb2f7fe3c595fa3f88ba86815b5db2b221adb25676afba66a)
 
 **Linked certificate versions: a two-version chain** (series `s-02fa028c02586bd3`):
 
