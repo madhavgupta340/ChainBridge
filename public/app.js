@@ -167,7 +167,7 @@ async function loadText(name,text,byteLength,sha256){
   const data=ingest({name,text,byteLength});
   if(S.session&&!complete()&&S.session.status!=='quoted')toast('Your earlier signed payment was not used, so it will not be charged.');
   if(complete())Object.assign(S,{versionMode:'new',prev:null,prevLookup:null});
-  Object.assign(S,{newSeries:null,mode:'table',docs:[],source:sha256?{name,sha256}:null,shares:null,extract:null,extractConsent:false,original:data,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});useData(data);changed();
+  Object.assign(S,{paymentCheck:null,newSeries:null,mode:'table',docs:[],source:sha256?{name,sha256}:null,shares:null,extract:null,extractConsent:false,original:data,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});useData(data);changed();
   toast(`Loaded ${data.records.length} records`,'ok');
  }catch(e){S.data=null;S.plan=null;S.loadError=e.message;changed();}
 }
@@ -212,7 +212,7 @@ async function loadDocuments(files){
   if(total>DOC_LIMITS.maxTotalBytes)throw new Error(`The documents are ${(total/1048576).toFixed(1)} MB together. The limit is ${DOC_LIMITS.maxTotalBytes/1048576} MB.`);
   if(S.session&&!complete()&&S.session.status!=='quoted')toast('Your earlier signed payment was not used, so it will not be charged.');
   if(complete())Object.assign(S,{versionMode:'new',prev:null,prevLookup:null});
-  Object.assign(S,{newSeries:null,mode:'documents',docs,source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],plan:null,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});
+  Object.assign(S,{paymentCheck:null,newSeries:null,mode:'documents',docs,source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],plan:null,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});
   changed();toast(`Loaded ${docs.length} document(s)`,'ok');
  }catch(e){S.loadError=e.message;render();}
 }
@@ -687,12 +687,30 @@ async function publishAndFinish(){
   const headline=s.status==='settle-failed'?'Published, payment not completed':s.status==='needs-inspection'?'Published, payment not confirmed':'Not charged';
   fx.fail({headline,detail:[h('span',{},s.status==='needs-inspection'
     ?'Your fingerprint is on Cardano, but the payment service did not answer in time. The payment may still have gone through: check the payer wallet on Cardano before doing anything else, and do not pay again.'
-    :s.error??`Status: ${s.status}`)],buttons:[['Close',null,true]]});
+    :s.error??`Status: ${s.status}`)],buttons:['needs-inspection','settle-failed'].includes(s.status)?[['Check Cardano for the payment',checkPayment,true],['Close',null]]:[['Close',null,true]]});
  }catch(e){
   try{S.session=await api(`/api/x402/session/${S.session.id}`);}catch{}
   S.busy=false;refreshActivity();render();
   fx.fail({headline:'Not charged',detail:[h('span',{},e.message)],buttons:[['Close',null,true]]});
  }
+}
+// Read-only: looks the signed payment up on Cardano after a settlement timeout. Never resubmits it.
+async function checkPayment(){
+ S.paymentCheck={busy:true};render();
+ try{
+  const r=await api(`/api/x402/session/${S.session.id}/check-payment`,{});
+  S.session=r;const c=r.paymentCheck;
+  const exp=r.expiresAt?new Date(r.expiresAt).toLocaleTimeString('en-GB',{timeStyle:'short'}):null;
+  S.paymentCheck={text:c.status==='paid'?null
+   :c.status==='not-found'?`Your payment is not on Cardano (yet). It was signed but not broadcast, so you have not been charged.${exp?` The signed payment can only go through until ${exp}.`:''} Check again in a minute; ChainBridge will not send it again by itself.`
+   :c.status==='cannot-settle'?'Your signed payment can no longer go through: the wallet spent those funds in another transaction. You have not been charged for this job.'
+   :'A transaction was found, but it does not pay the quoted amount to ChainBridge. Please check it on a Cardano explorer.'};
+  refreshActivity();render();
+  if(c.status==='paid'){
+   if(S.commitment?.files?.length&&!S.shares){S.shares=[];createShares();}
+   toast('Payment found on Cardano. The job is complete.','ok');
+  }
+ }catch(e){S.paymentCheck={text:e.message};render();}
 }
 function viewPublish(){
  const c=S.commitment,s=S.session,recs=selectedRecords(),p=S.plan;
@@ -724,7 +742,11 @@ function viewPublish(){
    !complete()&&h('button',{class:'btn ghost small',type:'button',disabled:S.busy,onclick:createProof},'Create again'),
    complete()&&note('ok',h('strong',{},'Published and paid. '),'Your package is ready.')),
   s?.status==='failed'&&note('error',s.error),
-  ['settle-failed','needs-inspection'].includes(s?.status)&&note('warn',s.error),
+  ['settle-failed','needs-inspection'].includes(s?.status)&&note('warn',h('strong',{},'Published, payment not confirmed. '),
+   'Your fingerprint is on Cardano. The payment service didn\'t confirm your payment, so ChainBridge can look for it on Cardano. This only reads Cardano: it never sends the payment again.',
+   h('div',{class:'row'},S.paymentCheck?.busy?spinner('Looking for your payment on Cardano…')
+    :h('button',{class:'btn small',type:'button',onclick:checkPayment},'Check Cardano for the payment')),
+   S.paymentCheck?.text&&h('p',{class:'small'},S.paymentCheck.text)),
   tech(facts([
    ['"One fingerprint"','The Merkle root of the record fingerprints (SHA-256, binary tree; an odd node is carried up unchanged)'],
    ['Record fingerprint',`SHA-256(0x00 ‖ "${LEAF_DOMAIN}" ‖ 0x00 ‖ salt ‖ 0x00 ‖ formatted record); combining two: SHA-256(0x01 ‖ left ‖ right)`],
@@ -844,7 +866,7 @@ function viewShare(){
 // Next version of the job just completed: its own transaction is the predecessor, and a fresh job starts.
 function startNextVersion(){
  const s=S.session,pub=s.publication;
- Object.assign(S,{versionMode:'add',prev:{txHash:pub.txHash,series:s.version.series,version:s.version.n,root:S.commitment.root,blockTime:pub.blockTime??new Date().toISOString()},prevLookup:null,newSeries:null,
+ Object.assign(S,{paymentCheck:null,versionMode:'add',prev:{txHash:pub.txHash,series:s.version.series,version:s.version.n,root:S.commitment.root,blockTime:pub.blockTime??new Date().toISOString()},prevLookup:null,newSeries:null,
   docs:[],source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],plan:null,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null,view:0});
  render();window.scrollTo(0,0);toast(`Upload the updated file or data for version ${S.prev.version+1}.`);
 }

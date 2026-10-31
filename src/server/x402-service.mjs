@@ -23,7 +23,9 @@ import {versionLines} from './cardano-anchor.mjs';
 export class X402Error extends Error{constructor(status,message){super(message);this.status=status;}}
 const ID=/^[0-9a-f-]{36}$/;
 
-export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publish,audit,resourceBase,maxTimeoutSeconds=1800}){
+// `findPayment` (optional): read-only lookup of the buyer's signed payment on Cardano, for payments whose settlement
+// outcome is unknown (see reconcile). It never submits anything.
+export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publish,findPayment,audit,resourceBase,maxTimeoutSeconds=1800}){
  mkdirSync(dir,{recursive:true,mode:0o700});
  const file=id=>{if(!ID.test(id))throw new X402Error(400,'Invalid session');return join(dir,`${id}.json`);};
  const load=id=>{const f=file(id);if(!existsSync(f))throw new X402Error(404,'Unknown quote or session');return JSON.parse(readFileSync(f,'utf8'));};
@@ -129,6 +131,26 @@ export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publ
    }
    s.extraction=results;s.status='analyzed';save(s);log(s,'x402_extracted');
    return view(s);
+  },
+
+  // 6. After a settlement timeout or failure: look the signed payment up on Cardano (read-only). If that exact
+  // transaction is confirmed and pays the quoted amount to ChainBridge, the job is complete. Otherwise nothing changes,
+  // and nothing is resubmitted: an uncertain payment is never retried automatically.
+  async reconcile(id){
+   const s=load(id);
+   if(s.status==='complete')return {...view(s),paymentCheck:{status:'paid',txHash:s.settlement?.transaction??null}};
+   if(!['needs-inspection','settle-failed'].includes(s.status)||!s.publication?.txHash)throw new X402Error(409,'Only a published job whose payment was not confirmed can be checked');
+   if(!findPayment)throw new X402Error(503,'This computer has no Cardano data access configured');
+   let r;try{r=await findPayment({payment:s.payment,requirements:s.requirements});}
+   catch(e){throw new X402Error(502,`Cardano could not be reached (${e.message}). Nothing was changed; try again later.`);}
+   s.lastPaymentCheck={at:new Date().toISOString(),status:r.status};
+   if(r.status==='paid'){
+    s.settlement={success:true,transaction:r.txHash,network:X402_NETWORK,status:'confirmed',errorReason:null,
+     reconciled:{at:new Date().toISOString(),how:'Settlement outcome was unknown; the signed payment transaction was found confirmed on Cardano, paying the quoted amount.',blockHeight:r.blockHeight??null}};
+    s.previousError=s.error;delete s.error;s.status='complete';
+    save(s);log(s,'x402_settled',{txHash:r.txHash,reason:'confirmed on-chain after settlement problem'});
+   }else save(s);
+   return {...view(s),paymentCheck:r};
   },
 
   // 5. Paid: check the fingerprint, publish it on Cardano, then settle the payment.

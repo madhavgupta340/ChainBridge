@@ -18,7 +18,7 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification, shareable file checks, linked certificate versions. 110 automated tests. |
+| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification, shareable file checks, linked certificate versions. 112 automated tests. |
 | Gets paid on Cardano | **Met (test network)** | x402 payment of 4.75 tADA, settled on Preprod only after publication (below). Also two Masumi escrow payments via Sokosumi. |
 | Does the job on Cardano | **Met (test network)** | Fingerprints published as transaction metadata, read back from the chain. |
 | Reads unstructured documents | **Met (test network)** | A 2-page PDF inspection report: 30 facts extracted, boilerplate and a planted instruction ignored, sealed and published (below). |
@@ -125,6 +125,10 @@ Privacy: a document can't be partly masked, so the whole file reaches Meta's AI.
 - After the fingerprint is published and confirmed, ChainBridge **settles**: the facilitator broadcasts the signed payment. If publication fails, the payment is never broadcast and the customer is not charged.
 - The signed payment is valid for 30 minutes. Sessions are journalled before every external step; interrupted steps are flagged for inspection, never retried blindly.
 - Trade-off of direct payment: there is no escrow refund. ChainBridge protects the customer by settling only after delivery.
+- **If the payment service doesn't confirm** (it has timed out with a 504 more than once on Preprod), the job is marked "needs inspection" and shows **"Published, payment not confirmed"**.
+  - **Check Cardano for the payment** looks up the buyer's signed payment by its own transaction ID. The signed transaction is exactly what settlement broadcasts.
+  - If it is confirmed and pays the quoted amount to ChainBridge, the job is complete. Otherwise the app says whether it is not on Cardano (not charged; it can still land until the signed payment expires) or can no longer go through (the funds were spent elsewhere).
+  - The check only reads Cardano. It never resubmits the payment.
 
 **Pricing** lives in `src/core/pricing.mjs` (placeholder values): base 2 tADA, +0.5 per 1,000 records, +0.25 per private column, +0.25 per tidy-up problem, +0.1 per column beyond 10, between 2 and 20 tADA. It is computed from counts, never by the AI, so it's free, reproducible and explainable. The customer's wallet adds the Cardano network fee (about 0.17 tADA); the agent pays the publication fee from its own wallet.
 
@@ -316,7 +320,7 @@ Extension points: new connectors (databases, APIs) only need to produce `{source
 
 ## Tests
 
-`npm test` runs 110 tests: the template's 29 plus ChainBridge's 81. They cover linked certificate versions (metadata, predecessor checks, chain rebuilding with gaps, repeats, other series, loops, missing transactions and outages, nothing stored) and shareable verification:
+`npm test` runs 112 tests: the template's 29 plus ChainBridge's 83. They cover linked certificate versions (metadata, predecessor checks, chain rebuilding with gaps, repeats, other series, loops, missing transactions and outages, nothing stored) and shareable verification:
 
 - file leaves and their privacy;
 - tampered certificates and proofs;

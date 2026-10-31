@@ -125,3 +125,49 @@ test('Version API: lookup and chain over HTTP, and nothing is stored',async t=>{
  assert.equal((await fetch(`${base}/versions.js`)).status,200);
  assert.equal(readdirSync(dir).sort().join(),before,'looking up versions writes nothing to disk');
 });
+
+// ---------- checking an unconfirmed payment on Cardano (read-only) ----------
+import {paymentFinder} from '../src/server/x402-routes.mjs';
+import {buildPublishTx,walletFromEntropy} from '../src/server/cardano-anchor.mjs';
+const params={min_fee_a:44,min_fee_b:155381,pool_deposit:'500000000',key_deposit:'2000000',max_val_size:'5000',max_tx_size:16384,coins_per_utxo_size:'4310'};
+
+test('Payment check: finds the signed payment by its own ID; not on chain, spent elsewhere or wrong amount are reported',async()=>{
+ const w=walletFromEntropy('22'.repeat(32));
+ const t=buildPublishTx({wallet:w,utxos:[{tx_hash:'c'.repeat(64),output_index:1,amount:[{unit:'lovelace',quantity:'9000000'}]}],params,metadata:{msg:['x']}});
+ const payment={payload:{transaction:t.cbor.toString('base64')}};
+ const requirements={payTo:w.address,amount:'1000000'};
+ const chain=({onChain,spentBy=null})=>async url=>{
+  const p=new URL(url).pathname.replace('/api/v0','');const ok=d=>({ok:true,status:200,json:async()=>d});
+  if(p===`/txs/${t.txHash}`)return onChain?ok({block_height:5000001}):{ok:false,status:404,json:async()=>({})};
+  if(p===`/txs/${t.txHash}/utxos`)return ok({outputs:[{address:w.address,amount:[{unit:'lovelace',quantity:'8800000'}]}]});
+  if(p===`/txs/${'c'.repeat(64)}/utxos`)return ok({outputs:[{output_index:1,consumed_by_tx:spentBy}]});
+  return {ok:false,status:404,json:async()=>({})};
+ };
+ assert.deepEqual(await paymentFinder('k',chain({onChain:true}))({payment,requirements}),{status:'paid',txHash:t.txHash,blockHeight:5000001});
+ assert.equal((await paymentFinder('k',chain({onChain:true}))({payment,requirements:{...requirements,amount:'99000000'}})).status,'mismatch');
+ assert.equal((await paymentFinder('k',chain({onChain:false}))({payment,requirements})).status,'not-found');
+ assert.equal((await paymentFinder('k',chain({onChain:false,spentBy:'d'.repeat(64)}))({payment,requirements})).status,'cannot-settle');
+});
+
+test('Reconcile: completes a published job only when its payment is found on Cardano; never resubmits; refuses other states',async t=>{
+ const requirements={scheme:'exact',network:'cardano:preprod',amount:'3250000',asset:'lovelace',payTo:'addr_test1qseller',maxTimeoutSeconds:1800,extra:{}};
+ let found={status:'not-found',txHash:tx(6)},settles=0;
+ const svc=createX402Service({dir:tmp(t),resourceBase:'x',
+  seller:{paymentRequired:async()=>({requirements,paymentRequired:{x402Version:2,accepts:[requirements]}}),verify:async()=>({isValid:true,payer:'p'}),
+   settle:async()=>{settles++;throw new Error('Facilitator settle failed (504)');}},
+  publish:async a=>({status:'confirmed',txHash:tx(5),metadata:anchorMetadata(a)}),
+  findPayment:async()=>{if(found==='down')throw new Error('offline');return found;}});
+ const c=await buildCommitment({records:[{sourceRow:1,values:{a:'1'}}],plan:{version:1,fields:['a'],strategy:'merkle-root',ordering:'source',salt:'per-record',duplicates:'keep'}});
+ const q=svc.quote({kind:'documents',documents:1,pages:1});
+ await assert.rejects(svc.reconcile(q.id),/Only a published job/);
+ await svc.paymentRequired(q.id);
+ await svc.pay(q.id,encodePaymentSignatureHeader({x402Version:2,accepted:requirements,payload:{transaction:'dHg=',nonce:'aa'.repeat(32)+'#0'}}));
+ assert.equal((await svc.publish(q.id,{payload:c.payload,leaves:c.leaves})).status,'needs-inspection');
+ let r=await svc.reconcile(q.id);assert.equal(r.status,'needs-inspection');assert.equal(r.paymentCheck.status,'not-found');
+ found='down';await assert.rejects(svc.reconcile(q.id),/could not be reached/);assert.equal(svc.get(q.id).status,'needs-inspection');
+ found={status:'paid',txHash:tx(6),blockHeight:7};
+ r=await svc.reconcile(q.id);
+ assert.equal(r.status,'complete');assert.equal(r.settlement.transaction,tx(6));assert.equal(r.error,null);
+ assert.equal(settles,1,'reconcile only reads Cardano: settlement is never retried');
+ assert.equal((await svc.reconcile(q.id)).status,'complete','checking again is harmless');
+});

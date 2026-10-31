@@ -22,6 +22,35 @@ export function x402Settings(root,env=process.env){
   reason:enabled?'x402 payments on Cardano Preprod':!payTo?'No ChainBridge receiving address (docs/payment-state.json or X402_PAY_TO)':!blockfrostKey?'BLOCKFROST_API_KEY_PREPROD is not set':'No publishing wallet (npm run publish-wallet)'};
 }
 
+// Read-only: finds the buyer's signed payment on Cardano by its own transaction ID (the signed transaction is exactly
+// what settlement broadcasts). paid: confirmed and pays at least the quoted amount to ChainBridge; not-found: not on
+// Cardano, inputs still unspent; cannot-settle: its inputs were spent by another transaction; mismatch: wrong amount.
+export function paymentFinder(blockfrostKey,fetchImpl=fetch){
+ const bf=async path=>{
+  const r=await fetchImpl(BLOCKFROST_PREPROD+path,{headers:{project_id:blockfrostKey},signal:AbortSignal.timeout(20000)});
+  if(r.status===404)return null;
+  if(!r.ok)throw new Error(`Blockfrost HTTP ${r.status}`);
+  return r.json();
+ };
+ return async({payment,requirements})=>{
+  const tx=C.FixedTransaction.from_bytes(Buffer.from(String(payment?.payload?.transaction??''),'base64'));
+  const txHash=tx.transaction_hash().to_hex();
+  const info=await bf(`/txs/${txHash}`);
+  if(info){
+   const u=await bf(`/txs/${txHash}/utxos`);
+   const paid=(u?.outputs??[]).filter(o=>o.address===requirements.payTo).reduce((n,o)=>n+Number(o.amount.find(a=>a.unit==='lovelace')?.quantity??0),0);
+   return paid>=Number(requirements.amount)?{status:'paid',txHash,blockHeight:info.block_height}:{status:'mismatch',txHash};
+  }
+  const inputs=tx.body().inputs();
+  for(let i=0;i<inputs.len();i++){
+   const inp=inputs.get(i),u=await bf(`/txs/${inp.transaction_id().to_hex()}/utxos`);
+   const out=(u?.outputs??[]).find(o=>o.output_index===inp.index());
+   if(out?.consumed_by_tx&&out.consumed_by_tx!==txHash)return {status:'cannot-settle',txHash,spentBy:out.consumed_by_tx};
+  }
+  return {status:'not-found',txHash};
+ };
+}
+
 async function balance(address,key){
  const r=await fetch(`${BLOCKFROST_PREPROD}/addresses/${address}`,{headers:{project_id:key},signal:AbortSignal.timeout(15000)});
  if(r.status===404)return 0;
@@ -33,7 +62,7 @@ export function createX402Routes({settings,dataDir,audit,analyze,extract,publish
  async function svc(){
   if(!settings.enabled)throw new X402Error(503,`x402 payments are not set up: ${settings.reason}`);
   if(!service)service=createX402Service({dir:join(dataDir,'x402'),seller:await createSeller({facilitatorUrl:settings.facilitator,payTo:settings.payTo}),
-   blockfrostKey:settings.blockfrostKey,analyze,extract,publish,audit,resourceBase});
+   blockfrostKey:settings.blockfrostKey,analyze,extract,publish,audit,resourceBase,findPayment:settings.blockfrostKey?paymentFinder(settings.blockfrostKey):undefined});
   return service;
  }
  const json=(res,status,data,headers={})=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers});res.end(JSON.stringify(data));};
@@ -65,7 +94,7 @@ export function createX402Routes({settings,dataDir,audit,analyze,extract,publish
    if(req.method==='GET'){m=p.match(/^\/api\/x402\/session\/([0-9a-f-]{36})$/);return json(res,200,(await svc()).get(m[1])),true;}
    const data=await readBody(/\/extract$/.test(p)?36*1024*1024:64*1024);
    if(p==='/api/x402/quote')return json(res,201,(await svc()).quote(data.measurements)),true;
-   m=p.match(/^\/api\/x402\/session\/([0-9a-f-]{36})\/(build|signature|demo-pay|analyze|extract|publish|share)$/);
+   m=p.match(/^\/api\/x402\/session\/([0-9a-f-]{36})\/(build|signature|demo-pay|analyze|extract|publish|share|check-payment)$/);
    if(!m)return json(res,404,{error:'Not found'}),true;
    const s=await svc();const [,id,action]=m;
    if(action==='build')return json(res,200,await s.buildPayment(id,{buyerAddress:addressToBech32(String(data.buyerAddress||''))})),true;
@@ -83,6 +112,7 @@ export function createX402Routes({settings,dataDir,audit,analyze,extract,publish
     }
     return json(res,200,await s.publish(id,{payload:data.payload,leaves:data.leaves,files:data.files??0,version:v})),true;
    }
+   if(action==='check-payment')return json(res,200,await s.reconcile(id)),true;
    if(action==='share'){
     // A signed certificate for one source file of this completed job (file hash + proof only, no records).
     const r=await shares.issue(s.raw(id),{file:data.file,proof:data.proof});
