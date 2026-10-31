@@ -12,20 +12,23 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Useful agent/service | **Met (local)** | Commitment prep, Merkle anchoring certificate, and proof verification. 68 automated tests. |
-| Runs as a Sokosumi Coworker | **Implemented, not yet run live** | `worker.mjs` (template) runs the ChainBridge job. Needs the team's Sokosumi account and Coworker. |
-| Gets paid on Cardano (Masumi, Preprod) | **Implemented via template, not yet run live** | `paid-task.mjs` / `agent-api.mjs` unchanged payment logic. Needs the team's own Masumi Payment Service, wallet and registration. |
-| Completed paid task + seller receipt | **Not yet met** | No task ID, payment tx hash or seller receipt exists yet. Record them below once obtained. |
+| Useful agent/service | **Met** | AI-assisted data organizing, privacy-aware commitments, Merkle anchoring certificate, proof verification. 78 automated tests. |
+| Runs as a Sokosumi Coworker | **Met** | Coworker `01a18d16-b119-7273-8778-92bb94281ffa` ("ChainBridge", vendor "Cardano to the Moon") completed Task `01a18f19-7fe2-7045-9011-128858636892` on Sokosumi Preprod. |
+| Gets paid on Cardano (Masumi, Preprod) | **Met (test network)** | Masumi registration confirmed; paid Task settled with 1 tUSDM (test token). |
+| Completed paid task + seller receipt | **Met (test network)** | Sokosumi receipt `settled: true`; seller net receipt of 1 tUSDM verified on-chain via Blockfrost. |
 
-### Evidence log (fill in after a real run; do not invent)
+### Evidence log (Cardano Preprod, 2026-10-31; test tokens, no real value)
 
-- Coworker ID: _pending_
-- Completed Sokosumi Task ID (unpaid test): _pending_
-- Follow-up comment and agent reply: _pending_
-- Paid Task ID: _pending_
-- Masumi `blockchainIdentifier`: _pending_
-- Payment / result transaction hash (Preprod): _pending_
-- Seller receipt (settlement tx hash + net tUSDM received): _pending_
+Created from the ChainBridge app (supplier certificates sample, 12 records → Merkle root `a5aa79ed86a085a61fe074bd6b3ed1c7cfe0f701c4c5fa45da260ae26c9e001f`), approved at a quoted 1 tUSDM, run by the ChainBridge worker.
+
+- Coworker ID: `01a18d16-b119-7273-8778-92bb94281ffa` (registered on Masumi as "Cardano to the Moon Invoice Checker", renamed ChainBridge on Sokosumi)
+- Completed Sokosumi Task ID: `01a18f19-7fe2-7045-9011-128858636892`
+- Agent result: "ChainBridge anchoring certificate: root verified." Result hash `18557fd1d581b7db06ecc3096965023df71aa3c3242a0e9bf50e60904f8315b9`
+- Escrow funded (FundsLocked): [`b786f50d…dee0beb`](https://preprod.cardanoscan.io/transaction/b786f50dcd8e4500cb0ffd8863fb95646766a683e6858cfce242ef4e3dee0beb)
+- Result submitted (FundsLocked → ResultSubmitted): [`60fbe98f…3e943c`](https://preprod.cardanoscan.io/transaction/60fbe98f1218df429de034093c8688844789779623f7cd5a14252c7db13e943c)
+- Seller payout (ResultSubmitted → Withdrawn), seller net +1 tUSDM: [`c95e9694…590fca`](https://preprod.cardanoscan.io/transaction/c95e9694de418594bc08e7bcf96cd097a5587446777bc1fa589be4e944590fca)
+- Sokosumi `runtime receipt`: `settled: true`, same txHash `c95e9694…590fca`
+- Follow-up comment and agent reply: _not yet recorded_
 
 ## Quick start (demo mode, about 2 minutes)
 
