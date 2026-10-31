@@ -6,6 +6,7 @@
 //  - the salt of that file's own leaf and the sibling hashes up to the root (opaque hashes: they reveal no
 //    records, no other files and no salts),
 //  - the root, the leaf count and the Cardano transaction that published the root,
+//  - for versioned certificates, the series id, version number and previous version's transaction,
 //  - optionally an issuer block and an Ed25519 signature over everything else.
 // It never contains record values, extracted facts, other files' hashes or other salts.
 import {canonicalize} from './canonical.mjs';
@@ -38,6 +39,8 @@ export function validateCertificate(c){
  if(!Array.isArray(p.siblings)||p.siblings.length>64||!p.siblings.every(s=>isHash(s?.hash)&&['left','right'].includes(s.side)))fail('bad proof path');
  if(!c.commitment||!isHash(c.commitment.root)||c.commitment.leafCount!==p.leafCount)fail('missing fingerprint');
  if(!c.cardano||!isHash(c.cardano.transaction))fail('missing Cardano transaction');
+ if(c.series!==undefined&&(!/^s-[0-9a-f]{16}$/.test(c.series?.id??'')||!Number.isInteger(c.series.version)||c.series.version<1||
+  (c.series.version===1)!==(c.series.previousTransaction===null)||(c.series.previousTransaction!==null&&!isHash(c.series.previousTransaction))))fail('bad series or version');
  if(c.signature!==undefined&&!/^[0-9a-f]{128}$/.test(c.signature))fail('bad signature format');
  return c;
 }

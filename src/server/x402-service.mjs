@@ -18,6 +18,7 @@ import {merkleRoot,isHash} from '../core/merkle.mjs';
 import {parseJobInput} from '../core/job.mjs';
 import {buildUnsignedPayment,attachWitnesses,paymentPayloadFor,X402_NETWORK} from './x402-pay.mjs';
 import {describeDocument,sha256Hex,DOC_LIMITS} from '../core/documents.mjs';
+import {versionLines} from './cardano-anchor.mjs';
 
 export class X402Error extends Error{constructor(status,message){super(message);this.status=status;}}
 const ID=/^[0-9a-f-]{36}$/;
@@ -29,7 +30,7 @@ export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publ
  const save=s=>{s.updatedAt=new Date().toISOString();writeFileSync(file(s.id),JSON.stringify(s),{mode:0o600});return s;};
  const log=(s,event,extra={})=>audit?.append({event,taskId:s.id,kind:'x402',mode:'x402',network:'Preprod',price:`${s.quote.totalLovelace/1e6} tADA`,
   paymentStatus:s.status,recordCount:s.quote.measurements.records??s.quote.measurements.documents,...extra});
- const view=s=>({id:s.id,status:s.status,quote:s.quote,payer:s.payer??null,fingerprint:s.fingerprint??null,analysis:s.analysis??null,extraction:s.extraction??null,publication:s.publication??null,
+ const view=s=>({id:s.id,status:s.status,quote:s.quote,payer:s.payer??null,fingerprint:s.fingerprint??null,version:s.version??null,analysis:s.analysis??null,extraction:s.extraction??null,publication:s.publication??null,
   settlement:s.settlement??null,error:s.error??null,createdAt:s.createdAt,paidAt:s.paidAt??null,expiresAt:s.expiresAt??null});
  const needPaid=s=>{
   if(!['paid','analyzed'].includes(s.status))throw new X402Error(402,s.status==='quoted'?'Payment required':`Session is ${s.status}`);
@@ -132,7 +133,8 @@ export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publ
 
   // 5. Paid: check the fingerprint, publish it on Cardano, then settle the payment.
   // `files`: how many of the leaves are source-file leaves (after the record leaves), for shareable certificates.
-  async publish(id,{payload,leaves,files=0}){
+  // `version` (optional): {series, n, prevTx} makes this job version n of a certificate series (see versions.mjs).
+  async publish(id,{payload,leaves,files=0,version=null}){
    const s=load(id);
    if(s.status==='complete')return view(s);
    if(['publishing','settling'].includes(s.status))throw new X402Error(409,`A previous ${s.status} step was interrupted. It needs inspection before retrying.`);
@@ -142,10 +144,15 @@ export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publ
    const maxFiles=s.quote.measurements.kind==='documents'?s.quote.measurements.documents:1;
    if(!Number.isInteger(files)||files<0||files>maxFiles||files>=leaves.length)throw new X402Error(400,`At most ${maxFiles} source file(s) can be added to this fingerprint`);
    if(leaves.length-files>quoted)throw new X402Error(400,`The quote covered ${quoted} records; this fingerprint has ${leaves.length-files}. Request a new quote.`);
+   if(version){
+    version={series:version.series,n:version.n,prevTx:version.prevTx??null};
+    try{versionLines(version);}catch(e){throw new X402Error(400,e.message);}
+    if(s.version&&JSON.stringify(s.version)!==JSON.stringify(version))throw new X402Error(409,'This job is already a different certificate version');
+   }
    const root=await merkleRoot(leaves);
    if(root!==payload.root||!isHash(root))throw new X402Error(400,'The fingerprint does not match the record fingerprints. Nothing was published or charged.');
-   s.status='publishing';s.fingerprint={root,leafCount:leaves.length,files,salted:payload.salted};save(s);
-   try{s.publication=await publish({root,leafCount:leaves.length,files,salted:payload.salted,jobRef:`x402-${s.id.slice(0,24)}`});}
+   s.status='publishing';s.fingerprint={root,leafCount:leaves.length,files,salted:payload.salted};if(version)s.version=version;save(s);
+   try{s.publication=await publish({root,leafCount:leaves.length,files,salted:payload.salted,version,jobRef:`x402-${s.id.slice(0,24)}`});}
    catch(e){s.status='failed';s.error=`Publishing failed: ${e.message}. The payment was not broadcast, so nothing was charged.`;save(s);log(s,'x402_publish_failed');throw new X402Error(502,s.error);}
    s.status='settling';save(s);log(s,'x402_published',{commitment:root,txHash:s.publication.txHash});
    try{

@@ -4,11 +4,12 @@
 // The signed payment is only settled after the fingerprint is published; if anything fails before, nothing is charged.
 // Parsing, labelling, tidying, fingerprinting and checking run here in the browser. The agent receives only
 // counts (for the quote), a masked sample (for the AI) and record fingerprints (to publish).
-import {h,svg,dropdown,mount,display,toast,api,download,short,copyButton,working,stopWorking} from './ui.js';
+import {h,svg,dropdown,mount,display,toast,api,download,short,copyButton,working,stopWorking,spinner} from './ui.js';
 import {availableWallets,connect,signPayment} from './wallet.js';
 import {zip,toCsv} from './zip.js';
 import {paymentOverlay} from './payfx.js';
 import {mountChecker,openCertificateId} from './verify.js';
+import {versionHistory,lookupVersion,transactionOf,newSeriesId,termsExplainer} from './versions.js';
 import {ingest} from '/core/ingest.mjs';
 import {analyzeSchema,applyOverride,FIELD_TYPES,SENSITIVITY} from '/core/schema.mjs';
 import {recommendPlan,validatePlan,countDuplicates} from '/core/plan.mjs';
@@ -22,7 +23,9 @@ import {describeDocument,sha256Hex,recordsFromExtractions,DOC_LIMITS} from '/cor
 import {fileProof} from '/core/certificate.mjs';
 
 // area: 'seal' (create a fingerprint, the paid flow) or 'check' (check a document against a certificate, free).
-const S={area:location.pathname.startsWith('/verify')?'check':'seal',config:null,x402:null,mode:'table',docs:[],source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],reviewSchema:null,selected:new Set(),plan:null,validation:null,
+// Certificate versions: versionMode 'new' (version 1 of a fresh series) or 'add' (next version after S.prev, a version
+// read from Cardano). newSeries is generated once per job so a repeated publish keeps the same series.
+const S={versionMode:'new',prev:null,prevLookup:null,newSeries:null,area:location.pathname.startsWith('/verify')?'check':'seal',config:null,x402:null,mode:'table',docs:[],source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],reviewSchema:null,selected:new Set(),plan:null,validation:null,
  commitment:null,salts:{},verify:null,organize:null,session:null,paying:null,busy:false,view:0,page:0,open:new Set()};
 const $=id=>document.getElementById(id);
 const PAGE=20,PREVIEW_ROWS=5,PREVIEW_COLS=5;
@@ -154,7 +157,7 @@ function render(){
  }
  renderStatus();renderStepper();
  const views=[viewUpload,viewReview,viewPrice,viewTidy,viewChoose,viewPublish,viewPackage];
- mount($('view'),h('section',{class:'card'},S.view===VERIFY?viewVerify():views[S.view]()));
+ mount($('view'),h('section',{class:'card'},S.view>0&&S.view!==VERIFY?versionBanner():null,S.view===VERIFY?viewVerify():views[S.view]()));
 }
 
 // ---------- 1. upload ----------
@@ -163,7 +166,8 @@ async function loadText(name,text,byteLength,sha256){
  try{
   const data=ingest({name,text,byteLength});
   if(S.session&&!complete()&&S.session.status!=='quoted')toast('Your earlier signed payment was not used, so it will not be charged.');
-  Object.assign(S,{mode:'table',docs:[],source:sha256?{name,sha256}:null,shares:null,extract:null,extractConsent:false,original:data,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});useData(data);changed();
+  if(complete())Object.assign(S,{versionMode:'new',prev:null,prevLookup:null});
+  Object.assign(S,{newSeries:null,mode:'table',docs:[],source:sha256?{name,sha256}:null,shares:null,extract:null,extractConsent:false,original:data,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});useData(data);changed();
   toast(`Loaded ${data.records.length} records`,'ok');
  }catch(e){S.data=null;S.plan=null;S.loadError=e.message;changed();}
 }
@@ -207,13 +211,63 @@ async function loadDocuments(files){
   }
   if(total>DOC_LIMITS.maxTotalBytes)throw new Error(`The documents are ${(total/1048576).toFixed(1)} MB together. The limit is ${DOC_LIMITS.maxTotalBytes/1048576} MB.`);
   if(S.session&&!complete()&&S.session.status!=='quoted')toast('Your earlier signed payment was not used, so it will not be charged.');
-  Object.assign(S,{mode:'documents',docs,source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],plan:null,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});
+  if(complete())Object.assign(S,{versionMode:'new',prev:null,prevLookup:null});
+  Object.assign(S,{newSeries:null,mode:'documents',docs,source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],plan:null,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});
   changed();toast(`Loaded ${docs.length} document(s)`,'ok');
  }catch(e){S.loadError=e.message;render();}
 }
 function useData(data,labels={}){
  S.data=data;S.schema=analyzeSchema(data.records,data.fields).map(f=>labels[f.name]?applyOverride(f,{sensitivity:labels[f.name]}):f);
  S.selected=new Set(data.records.map(r=>r.sourceRow));S.page=0;S.salts={};S.plan=recommendPlan(S.schema,data.records);
+}
+// ---------- certificate versions ----------
+// The version this job will publish: next after S.prev, or version 1 of a new random series.
+function jobVersion(){
+ if(S.versionMode==='add'&&S.prev)return {series:S.prev.series,n:S.prev.version+1,prevTx:S.prev.txHash};
+ S.newSeries??=newSeriesId();
+ return {series:S.newSeries,n:1,prevTx:null};
+}
+async function findPrevious(tx){
+ S.prevLookup={busy:true};render();
+ try{S.prev=await lookupVersion(tx);S.prevLookup=null;toast(`Found version ${S.prev.version}. This upload becomes version ${S.prev.version+1}.`,'ok');}
+ catch(e){S.prev=null;S.prevLookup={error:e.message};}
+ render();
+}
+async function onPreviousCertificate(f){
+ if(!f)return;
+ let cert;try{cert=JSON.parse(await f.text());}catch{S.prevLookup={error:'That file is not a ChainBridge certificate (it is not JSON).'};return render();}
+ const tx=transactionOf(cert);
+ if(!tx){S.prevLookup={error:'That certificate has no Cardano transaction in it.'};return render();}
+ findPrevious(tx);
+}
+function versionChoice(){
+ const locked=paid()||complete();
+ const card=(mode,title,desc)=>h('label',{class:`choice ${S.versionMode===mode?'on':''}`},
+  h('input',{type:'radio',name:'vmode',value:mode,checked:S.versionMode===mode,disabled:locked,onchange:()=>{S.versionMode=mode;render();}}),h('span',{},h('strong',{},title),h('span',{class:'muted'},desc)));
+ const p=S.prev,tx=h('input',{type:'text',id:'prevtx',class:'grow',placeholder:'Cardano transaction ID of the latest version',autocomplete:'off',spellcheck:'false',
+  onkeydown:e=>{if(e.key==='Enter')findPrevious(e.target.value.trim().toLowerCase());}});
+ return h('section',{class:'vchoice'},
+  h('h3',{},'What are you creating?'),
+  h('div',{class:'choices',role:'radiogroup'},
+   card('new','Create new certificate','Version 1 of a new certificate series.'),
+   card('add','Add a version','A new certificate that links to the latest version of an existing one.')),
+  S.versionMode==='add'&&h('div',{class:'vprev'},
+   p?[h('div',{class:'vprev-found'},h('span',{class:'pill ok'},'Found on Cardano'),
+      h('p',{},h('strong',{},`Version ${p.version}`),` of series `,h('code',{},p.series),`, recorded ${new Date(p.blockTime).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'})}. Your upload becomes `,h('strong',{},`version ${p.version+1}`),'.'),
+      !locked&&h('button',{class:'btn ghost small',type:'button',onclick:()=>{S.prev=null;render();}},'Use a different certificate')),
+     note('warn',h('strong',{},'Use the latest version. '),'ChainBridge follows links backwards only, so it can\'t see whether newer versions already exist. Continuing an older one would create a second version with the same number.')]
+   :[h('p',{},'Add the latest certificate of the series, or its Cardano transaction ID. ChainBridge reads it from Cardano and checks its series and version number.'),
+     h('div',{class:'row'},h('input',{type:'file',id:'prevcert',accept:'.json,application/json',class:'visually-hidden',onchange:e=>{onPreviousCertificate(e.target.files[0]);e.target.value='';}}),
+      h('label',{for:'prevcert',class:'btn'},'Open the previous certificate (.json)')),
+     h('div',{class:'row'},tx,h('button',{class:'btn',type:'button',onclick:()=>findPrevious(tx.value.trim().toLowerCase())},'Look up')),
+     S.prevLookup?.busy&&spinner('Reading it from Cardano…'),
+     S.prevLookup?.error&&note('error',h('strong',{},'Can\'t add a version to this. '),S.prevLookup.error)],
+   more('vterms','Version, series and transaction: what\'s the difference?',termsExplainer())));
+}
+function versionBanner(){
+ if(S.versionMode!=='add'||!S.prev)return null;
+ return h('div',{class:'entry-banner',role:'note'},h('span',{class:'mono-key'},'New version'),
+  h('span',{},h('strong',{},`Version ${S.prev.version+1}`),' of series ',h('code',{},S.prev.series),` · links to version ${S.prev.version} (${S.prev.txHash.slice(0,10)}…)`));
 }
 function viewUpload(){
  const L=S.config.limits,d=S.data;
@@ -225,6 +279,7 @@ function viewUpload(){
     h('h1',{tabindex:-1},'Seal your data.',h('br'),'Prove it later',h('span',{class:'dot'},'.')),
     h('p',{class:'lead'},'ChainBridge reads your documents and spreadsheets with AI (PDFs, photos, screenshots, CSV), picks out the facts that matter, seals them with a digital fingerprint, and publishes that fingerprint on the Cardano blockchain. You see the price first, and pay only when the fingerprint is published.')),
    drawing()),
+  versionChoice(),
   h('div',{class:'upload'},input,
    h('label',{for:'file',class:'drop',ondragover:e=>{e.preventDefault();e.currentTarget.classList.add('over');},ondragleave:e=>e.currentTarget.classList.remove('over'),
     ondrop:e=>{e.preventDefault();e.currentTarget.classList.remove('over');onFiles(e.dataTransfer.files);}},
@@ -314,6 +369,7 @@ function viewReview(){
 // ---------- 3. price & payment ----------
 function measurements(){return S.mode==='documents'?measureDocuments(S.docs):measure(S.data,S.schema,countTidyIssues);}
 async function getQuote(){
+ if(S.versionMode==='add'&&!S.prev){toast('Add the previous certificate (or its transaction ID) on the first step, or choose "Create new certificate".','error');return;}
  S.busy=true;render();
  try{S.session=await api('/api/x402/quote',{measurements:measurements()});S.reviewSchema=S.schema.map(f=>({...f}));}
  catch(e){toast(e.message,'error');}
@@ -613,9 +669,11 @@ async function publishAndFinish(){
  fx.pace(14000);
  try{
   const c=S.commitment;
-  S.session=await api(`/api/x402/session/${S.session.id}/publish`,{payload:c.payload,leaves:c.leaves,files:c.files.length});
+  S.session=await api(`/api/x402/session/${S.session.id}/publish`,{payload:c.payload,leaves:c.leaves,files:c.files.length,version:jobVersion()});
   S.busy=false;refreshActivity();render();
   const s=S.session;
+  // File certificates right away (they carry this version's series and number).
+  if(s.publication?.txHash&&c.files?.length&&!S.shares){S.shares=[];createShares();}
   if(s.status==='complete'){
    const pub=s.publication,pay=s.settlement?.transaction;
    fx.success({headline:'Paid',detail:[
@@ -642,7 +700,12 @@ function viewPublish(){
     p.salt==='per-record'&&h('li',{},'The extra secret values (in your proof file)'),
     h('li',{},'The proof file you\'ll use to check records later'))),
    h('div',{class:'panel public'},h('h3',{},'Published on Cardano'),h('ul',{},
-    h('li',{},'One fingerprint (a 64-character code)'),h('li',{},`The number of records (${recs.length})`),h('li',{},'A job reference and the date'),h('li',{},'No column names and no values')))),
+    h('li',{},'One fingerprint (a 64-character code)'),h('li',{},`The number of records (${recs.length})`),h('li',{},'A job reference and the date'),
+    (v=>[h('li',{},`Certificate series ${v.series} (random) and version ${v.n}`),v.prevTx&&h('li',{},`A link to version ${v.n-1}'s transaction (${v.prevTx.slice(0,10)}…)`)])(jobVersion()),
+    h('li',{},'No column names and no values')))),
+  note('info',h('strong',{},jobVersion().n>1?'Versions are publicly linkable. ':'About the series ID. '),jobVersion().n>1
+   ?'Every version repeats the series ID on Cardano, so anyone can see these versions belong together. The ID is random and says nothing about you or the content.'
+   :'This certificate starts a new series with a random ID. If you add versions later, they repeat this ID on Cardano, so anyone can see they belong together.'),
   !c&&h('div',{class:'center-action'},h('button',{class:'btn primary big',type:'button',disabled:S.busy,onclick:createProof},S.busy?'Creating…':'Create my fingerprint'),
    h('p',{class:'hint'},'Runs entirely in this browser. Free to redo until you publish.')),
   c&&h('div',{class:'success'},
@@ -651,7 +714,8 @@ function viewPublish(){
    h('p',{class:'small'},`Seals ${c.stats.committed} record${c.stats.committed===1?'':'s'}`+(c.stats.duplicates?` (${c.stats.duplicates} duplicate${c.stats.duplicates>1?'s':''} ${c.stats.dropped?'removed':'kept'})`:'')
     +(c.stats.files===1?', plus the original file, so anyone you share it with can check it':c.stats.files?`, plus the ${c.stats.files} original files, so anyone you share one with can check it`:'')+'.'),
    !complete()&&h('div',{class:'center-action'},
-    h('button',{class:'btn pay',type:'button',disabled:S.busy||!paid(),onclick:publishAndFinish},h('span',{class:'pay-label'},S.busy?'Publishing on Cardano…':'Publish on Cardano and pay'),h('span',{class:'pay-amount'},`${ada(s.quote.totalLovelace)} tADA`)),
+    S.versionMode==='add'&&!S.prev&&note('error','Add the previous certificate on the first step before publishing a new version.'),
+    h('button',{class:'btn pay',type:'button',disabled:S.busy||!paid()||(S.versionMode==='add'&&!S.prev),onclick:publishAndFinish},h('span',{class:'pay-label'},S.busy?'Publishing on Cardano…':'Publish on Cardano and pay'),h('span',{class:'pay-amount'},`${ada(s.quote.totalLovelace)} tADA`)),
     h('p',{class:'hint'},'Takes about a minute: the agent publishes your fingerprint, waits for Cardano to confirm it, then your signed payment is sent.')),
    !complete()&&h('button',{class:'btn ghost small',type:'button',disabled:S.busy,onclick:createProof},'Create again'),
    complete()&&note('ok',h('strong',{},'Published and paid. '),'Your package is ready.')),
@@ -706,6 +770,8 @@ function certificate(){
   publication:pub?{transaction:pub.txHash,explorer:pub.explorer,block:pub.blockHeight,status:pub.status,metadataLabel:pub.label,message:pub.metadata,publisher:pub.publisher}:null,
   payment:{protocol:'x402 (exact scheme, direct payment)',network:'cardano:preprod',amount:`${ada(s.quote.totalLovelace)} tADA`,
    transaction:s.settlement?.transaction??null,explorer:s.settlement?.transaction?EXPLORER+s.settlement.transaction:null,payer:s.payer,status:s.status},
+  ...(s.version?{series:{id:s.version.series,version:s.version.n,previousTransaction:s.version.prevTx??null,
+   note:'Each version is its own certificate and Cardano transaction. Versions of one series are linked by "previous transaction" and can be followed backwards from the newest one.'}}:{}),
   sources:S.mode==='documents'?S.extract.docs.map(d=>({file:d.name,sha256:d.sha256,pages:d.pages})):[{file:S.original.name,...(S.source?{sha256:S.source.sha256}:{})}],
   shareableFiles:(Array.isArray(S.shares)?S.shares:[]).filter(x=>x.certificate).map(x=>({file:x.file.name,sha256:x.file.sha256,certificateId:x.certificate.id,verifyLink:x.link.url,linkKind:x.link.kind})),
   quote:s.quote,
@@ -771,10 +837,19 @@ function viewShare(){
    h('li',{},'A short list of other fingerprints that connect it to the published one. They reveal nothing about your other records or files.'),
    h('li',{},'The Cardano transaction and the demo issuer\'s signature. No extracted facts, no other data, no proof file.')))];
 }
+// Next version of the job just completed: its own transaction is the predecessor, and a fresh job starts.
+function startNextVersion(){
+ const s=S.session,pub=s.publication;
+ Object.assign(S,{versionMode:'add',prev:{txHash:pub.txHash,series:s.version.series,version:s.version.n,root:S.commitment.root,blockTime:pub.blockTime??new Date().toISOString()},prevLookup:null,newSeries:null,
+  docs:[],source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],plan:null,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null,view:0});
+ render();window.scrollTo(0,0);toast(`Upload the updated file or data for version ${S.prev.version+1}.`);
+}
 function viewPackage(){
  const s=S.session,pub=s.publication;
  return [
   ...heading('Your package','Everything from this job in one download.'),
+  s.version&&note('ok',h('strong',{},`Version ${s.version.n} of series `),h('code',{},s.version.series),s.version.n>1?`, linked to version ${s.version.n-1}. `:'. ',
+   'This is a new certificate and Cardano transaction; earlier versions are unchanged.'),
   h('div',{class:'success'},
    h('h3',{},'✓ Published on Cardano and paid'),
    facts([['Your fingerprint',h('code',{},S.commitment.root)],
@@ -787,6 +862,9 @@ function viewPackage(){
    h('div',{class:'row'},h('button',{class:'btn small',type:'button',onclick:()=>download(`chainbridge-certificate-${S.commitment.root.slice(0,8)}.json`,JSON.stringify(certificate(),null,2))},'Certificate only'),
     h('button',{class:'btn small',type:'button',onclick:()=>go(VERIFY)},'Try verifying a record →'))),
   viewShare(),
+  s.version&&pub?.txHash&&[versionHistory(pub.txHash,{expectedRoot:S.commitment.root}),
+   h('div',{class:'row'},h('button',{class:'btn',type:'button',onclick:startNextVersion},`Create version ${s.version.n+1} →`),
+    h('span',{class:'hint'},'Seal an updated file or dataset as the next version of this certificate.'))],
   actions({back:5}),
  ];
 }

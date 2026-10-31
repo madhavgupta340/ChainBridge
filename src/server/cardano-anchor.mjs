@@ -5,6 +5,9 @@
 // Metadata uses label 674 (CIP-20 transaction message), as a list of strings of at most 64 bytes:
 //   {"674":{"msg":["ChainBridge data fingerprint v1","sha-256 merkle root:","<64 hex>","records: N","files: F","salted: true","job: <id>"]}}
 // "files: F" (source-file leaves after the N record leaves) appears only when F > 0; the root covers N + F leaves.
+// Certificate versions add, before "salted": "series: s-<16 hex>" (random, opaque), "version: <n>" and, from version 2,
+// "prev tx:" followed by the previous version's transaction hash. Versions are found by following "prev tx" backwards;
+// nothing about them is stored off-chain.
 //
 // Safety: one publication per (fingerprint, job). The journal is written before submitting; an interrupted
 // submission is never retried automatically (it may already be on-chain).
@@ -20,10 +23,26 @@ export const EXPLORER='https://preprod.cardanoscan.io/transaction/';
 const harden=n=>0x80000000+n;
 const HEX64=/^[0-9a-f]{64}$/;
 
-export function anchorMetadata({root,leafCount,files=0,salted,jobRef}){
+export const SERIES_ID=/^s-[0-9a-f]{16}$/;
+export function versionLines(version){
+ if(!version)return [];
+ const {series,n,prevTx=null}=version;
+ if(!SERIES_ID.test(series??'')||!Number.isInteger(n)||n<1||n>100000)throw new Error('Invalid certificate series or version number');
+ if((n===1)!==(prevTx===null)||(prevTx!==null&&!HEX64.test(prevTx)))throw new Error('Version 1 has no previous version; later versions need the previous transaction');
+ return [`series: ${series}`,`version: ${n}`,...(prevTx?['prev tx:',prevTx]:[])];
+}
+export function anchorMetadata({root,leafCount,files=0,salted,jobRef,version=null}){
  if(!HEX64.test(root))throw new Error('Fingerprint must be a 64-character hex hash');
  const f=Number(files)||0;
- return {msg:['ChainBridge data fingerprint v1','sha-256 merkle root:',root,`records: ${Number(leafCount)-f}`,...(f?[`files: ${f}`]:[]),`salted: ${Boolean(salted)}`,`job: ${String(jobRef).slice(0,58)}`]};
+ return {msg:['ChainBridge data fingerprint v1','sha-256 merkle root:',root,`records: ${Number(leafCount)-f}`,...(f?[`files: ${f}`]:[]),...versionLines(version),`salted: ${Boolean(salted)}`,`job: ${String(jobRef).slice(0,58)}`]};
+}
+// Reads a ChainBridge label-674 message back (null if it is not one).
+export function parseAnchorMessage(msg){
+ if(!Array.isArray(msg)||msg[0]!=='ChainBridge data fingerprint v1')return null;
+ const line=p=>{const l=msg.find(x=>typeof x==='string'&&x.startsWith(p));return l===undefined?null:l.slice(p.length);};
+ const num=p=>{const v=line(p);return v===null?null:Number(v);};
+ const i=msg.indexOf('prev tx:');
+ return {root:msg[2]??null,records:num('records: '),files:num('files: ')??0,series:line('series: '),version:num('version: '),prevTx:i>=0?msg[i+1]??null:null,job:line('job: ')};
 }
 
 // Standard Cardano wallet derivation (CIP-1852), account 0, first address, Preprod.
@@ -91,11 +110,11 @@ export function buildPublishTx({wallet,utxos,params,metadata}){
  return {txHash:fixed.transaction_hash().to_hex(),cbor:Buffer.from(fixed.to_bytes()),fee:fixed.body().fee().to_str()};
 }
 
-export async function publishFingerprint({root,leafCount,files=0,salted,jobRef,deadline},{walletPath,blockfrostKey,journalDir,fetchImpl=fetch,confirmTimeoutMs=150000,pollMs=8000}){
+export async function publishFingerprint({root,leafCount,files=0,salted,jobRef,version=null,deadline},{walletPath,blockfrostKey,journalDir,fetchImpl=fetch,confirmTimeoutMs=150000,pollMs=8000}){
  if(!blockfrostKey)throw new Error('BLOCKFROST_API_KEY_PREPROD is not set');
  const wallet=loadPublishingWallet(walletPath);
  if(!wallet)throw new Error('No publishing wallet. Run: npm run publish-wallet');
- const metadata=anchorMetadata({root,leafCount,files,salted,jobRef});
+ const metadata=anchorMetadata({root,leafCount,files,salted,jobRef,version});
  mkdirSync(journalDir,{recursive:true,mode:0o700});
  const journalFile=join(journalDir,createHash('sha256').update(`${root}:${jobRef}`).digest('hex')+'.json');
  const save=j=>writeFileSync(journalFile,JSON.stringify(j),{mode:0o600});
@@ -119,5 +138,5 @@ export async function publishFingerprint({root,leafCount,files=0,salted,jobRef,d
   await new Promise(r=>setTimeout(r,pollMs));
  }
  return {network:'Preprod',label:ANCHOR_LABEL,status:journal.phase==='confirmed'?'confirmed':'submitted',txHash:journal.txHash,
-  explorer:EXPLORER+journal.txHash,feeLovelace:journal.fee,blockHeight:journal.blockHeight??null,publisher:journal.address,metadata};
+  explorer:EXPLORER+journal.txHash,feeLovelace:journal.fee,blockHeight:journal.blockHeight??null,blockTime:journal.blockTime?new Date(journal.blockTime*1000).toISOString():null,publisher:journal.address,metadata};
 }

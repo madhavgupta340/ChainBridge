@@ -18,7 +18,7 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification, shareable file checks. 104 automated tests. |
+| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification, shareable file checks, linked certificate versions. 110 automated tests. |
 | Gets paid on Cardano | **Met (test network)** | x402 payment of 4.75 tADA, settled on Preprod only after publication (below). Also two Masumi escrow payments via Sokosumi. |
 | Does the job on Cardano | **Met (test network)** | Fingerprints published as transaction metadata, read back from the chain. |
 | Reads unstructured documents | **Met (test network)** | A 2-page PDF inspection report: 30 facts extracted, boilerplate and a planted instruction ignored, sealed and published (below). |
@@ -234,6 +234,38 @@ It contains no record values, no extracted facts, no other files' hashes and no 
 
 Certificates are stored in `.local/chainbridge/certificates/` (file hash and proof only). They are created only for completed, published jobs, and only if the file's proof leads to the published root.
 
+## Linked certificate versions
+
+Any certificate (documents or spreadsheets) can get newer versions. **Three terms:**
+- **Certificate version:** one sealed state of a file or dataset, with its own certificate, proof file and Cardano transaction. A new version never edits an older one.
+- **Certificate series:** a random, opaque ID (`s-` plus 16 hex characters) that connects the versions. It contains nothing personal. Every version repeats it on Cardano, so **versions of a series are publicly linkable**.
+- **Cardano transaction:** the public record of one version: its fingerprint, version number and a link to the previous version's transaction.
+
+**How a version is created:**
+- **Every new certificate starts a series.** On the upload step, "Create new certificate" makes version 1 of a fresh series.
+- **"Add a version"** takes the latest certificate (the package `certificate.json` or a file certificate) or its transaction ID.
+  - ChainBridge reads that transaction from Cardano and checks that it is a ChainBridge certificate with a series.
+  - The new upload becomes the next version.
+  - Before anything is published or charged, the server re-reads the predecessor and requires the same series and the version number just before (`src/server/versions.mjs`).
+- **Price, payment, AI review and publishing are unchanged.** Payment is still settled only after publication.
+
+**Metadata:** the version adds, before `salted:`, `series: s-…` and `version: N` and, from version 2, `prev tx:` followed by the previous version's transaction hash. Every string fits Cardano's 64-byte limit.
+
+**Nothing is stored.** There is no history database or index. The version history (on the package step and in the Check tab) is rebuilt by starting at a transaction and following `prev tx` backwards through Blockfrost. For each version it shows the transaction, its commitment (for the starting version, compared with the certificate's fingerprint) and its link:
+- same series;
+- version numbers counting down by one;
+- version 1 with no predecessor;
+- no loops or repeats;
+- recorded in order.
+
+Missing transactions are reported, and anything unchecked shows "Not checked".
+
+**Limits:**
+- **Backwards only.** An older certificate can't reveal newer versions; that would need a chain search or an indexer, which ChainBridge doesn't run. Starting from an older version than the latest would create a second version with the same number. The app warns about this, but can't prevent it without an index.
+- **Older certificates can't be continued.** Certificates published before this feature have no series.
+- **Each version's files are the user's to keep.** Checking a version's file still needs that version's certificate (and its proof file, for records).
+- **It proves order and integrity, not truth.** A valid chain shows each version was recorded in this order and hasn't changed since. It doesn't show the contents are true.
+
 ## Cryptography
 
 - **Canonicalization (`CB-CANON-1`):** only selected fields are used, and a missing field becomes `null`. Keys and strings are NFC-normalized and keys are sorted by UTF-16 code units. JSON escaping is used with no whitespace. Numbers use the shortest ECMAScript form (`-0`→`0`, NaN/∞ rejected). Values are **not trimmed or coerced**: CSV values stay strings exactly as in the file, and JSON keeps its types. So `"7"` (CSV) and `7` (JSON) hash differently by design.
@@ -265,10 +297,10 @@ src/core/      ingest.mjs (CSV/JSON) · schema.mjs (types, sensitivity) · recip
                plan.mjs (planner + validation)
                canonical.mjs · merkle.mjs · commitment.mjs · certificate.mjs (shareable file certificates) · job.mjs (paid service job) · limits.mjs
 src/server/    main.mjs (HTTP + static) · tasks.mjs (quote/approval/execution) · states.mjs
-               x402-pay.mjs · x402-service.mjs · x402-routes.mjs (x402 payments) · cardano-anchor.mjs (publication) · share.mjs (certificates, link, QR, checks)
+               x402-pay.mjs · x402-service.mjs · x402-routes.mjs (x402 payments) · cardano-anchor.mjs (publication) · share.mjs (certificates, link, QR, checks) · versions.mjs (linked versions, read from Cardano)
                config.mjs (mode, price) · sokosumi.mjs (CLI + worker journal) · ai-config.mjs (Meta) · ai-organizer.mjs
                ai-planner.mjs · audit.mjs · store.mjs
-public/        index.html · app.js · verify.js ("Check a document" tab, also opened by verification links) · ui.js · wallet.js (CIP-30) · zip.js (package) · styles.css
+public/        index.html · app.js · verify.js ("Check a document" tab, also opened by verification links) · versions.js (version lookup and history) · ui.js · wallet.js (CIP-30) · zip.js (package) · styles.css
 chainbridge-answer.mjs   plugs the ChainBridge job into the template worker and MIP-003 API
 worker.mjs, paid-task.mjs, agent-api.mjs, payment-registration.mjs, settlement.mjs …   Masumi template (lightly adapted)
 test/          ChainBridge tests     *.test.mjs   template tests
@@ -278,7 +310,7 @@ Extension points: new connectors (databases, APIs) only need to produce `{source
 
 ## Tests
 
-`npm test` runs 104 tests: the template's 29 plus ChainBridge's 75. They cover shareable verification:
+`npm test` runs 110 tests: the template's 29 plus ChainBridge's 81. They cover linked certificate versions (metadata, predecessor checks, chain rebuilding with gaps, repeats, other series, loops, missing transactions and outages, nothing stored) and shareable verification:
 
 - file leaves and their privacy;
 - tampered certificates and proofs;

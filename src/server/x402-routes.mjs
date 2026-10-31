@@ -28,7 +28,7 @@ async function balance(address,key){
  const j=await r.json();return Number(j.amount?.find(a=>a.unit==='lovelace')?.quantity??0)/1e6;
 }
 
-export function createX402Routes({settings,dataDir,audit,analyze,extract,publish,resourceBase,shares}){
+export function createX402Routes({settings,dataDir,audit,analyze,extract,publish,resourceBase,shares,versions}){
  let service;
  async function svc(){
   if(!settings.enabled)throw new X402Error(503,`x402 payments are not set up: ${settings.reason}`);
@@ -72,7 +72,17 @@ export function createX402Routes({settings,dataDir,audit,analyze,extract,publish
    if(action==='signature')return json(res,200,await s.signatureHeader(id,data)),true;
    if(action==='analyze')return json(res,200,await s.analyze(id,data.sample)),true;
    if(action==='extract')return json(res,200,await s.extract(id,{documents:data.documents,consent:data.consent})),true;
-   if(action==='publish')return json(res,200,await s.publish(id,{payload:data.payload,leaves:data.leaves,files:data.files??0})),true;
+   if(action==='publish'){
+    // Certificate version (optional). For version 2+, the predecessor is read from Cardano and must be the same
+    // series and the previous version number, before anything is published or charged.
+    const v=data.version??null;
+    if(v&&v.n>1&&s.raw(id).status!=='complete'){
+     const p=await versions.predecessor(v.prevTx);
+     if(p.series!==v.series)throw new X402Error(409,'The previous version belongs to a different certificate series. Nothing was published or charged.');
+     if(p.version!==v.n-1)throw new X402Error(409,`The previous transaction is version ${p.version}, so the next one is version ${p.version+1}, not ${v.n}. Nothing was published or charged.`);
+    }
+    return json(res,200,await s.publish(id,{payload:data.payload,leaves:data.leaves,files:data.files??0,version:v})),true;
+   }
    if(action==='share'){
     // A signed certificate for one source file of this completed job (file hash + proof only, no records).
     const r=await shares.issue(s.raw(id),{file:data.file,proof:data.proof});

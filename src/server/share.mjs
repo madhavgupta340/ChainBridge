@@ -10,7 +10,7 @@ import {existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {CERT_TYPE,CERT_VERSION,validateCertificate,signingBytes} from '../core/certificate.mjs';
 import {fileLeafHash,verifyProof,isHash} from '../core/merkle.mjs';
-import {loadPublishingWallet,BLOCKFROST_PREPROD,ANCHOR_LABEL,EXPLORER} from './cardano-anchor.mjs';
+import {loadPublishingWallet,BLOCKFROST_PREPROD,ANCHOR_LABEL,EXPLORER,parseAnchorMessage} from './cardano-anchor.mjs';
 
 const C=createRequire(import.meta.url)('@emurgo/cardano-serialization-lib-nodejs');
 const QR=createRequire(import.meta.url)('qrcode-generator');
@@ -61,6 +61,7 @@ export function createShareService({dir,walletPath,blockfrostKey,publicBaseUrl,p
     commitment:{root,leafCount,files:session.fingerprint.files??null},
     proof:{domain:proof.domain,salt:proof.salt,leafHash:proof.leafHash,leafIndex:proof.leafIndex,leafCount:proof.leafCount,siblings:proof.siblings},
     cardano:{transaction:pub.txHash,metadataLabel:pub.label??ANCHOR_LABEL,blockHeight:pub.blockHeight??null},
+    ...(session.version?{series:{id:session.version.series,version:session.version.n,previousTransaction:session.version.prevTx??null}}:{}),
     issuedAt:now().toISOString(),
     statement:'This file matched the fingerprint published in the Cardano transaction when the certificate was issued. A match shows the file is unchanged since it was sealed, not that its contents are true.',
     ...(w?{issuer:{name:DEMO_ISSUER,demo:true,keyType:'ed25519',publicKey:Buffer.from(w.signingKey.to_public().as_bytes()).toString('hex'),address:w.address,note:ISSUER_NOTE}}:{})};
@@ -85,7 +86,7 @@ export function createShareService({dir,walletPath,blockfrostKey,publicBaseUrl,p
    let c;try{c=validateCertificate(certificate);}catch(e){throw new ShareError(400,e.message);}
    const tx=c.cardano.transaction;
    const cardano={status:'not-checked',transaction:tx,explorer:EXPLORER+tx,checkedBy:'This ChainBridge server, using Blockfrost (Cardano Preprod)'};
-   let inputs=null;
+   let inputs=null,parsed=null;
    if(!blockfrostKey)cardano.detail='This server has no Cardano data access configured, so the record was not looked up.';
    else try{
     const info=await bf(`/txs/${tx}`);
@@ -97,7 +98,7 @@ export function createShareService({dir,walletPath,blockfrostKey,publicBaseUrl,p
      const msg=(meta??[]).find(m=>String(m.label)===String(ANCHOR_LABEL))?.json_metadata?.msg;
      const num=p=>{const l=Array.isArray(msg)?msg.find(x=>typeof x==='string'&&x.startsWith(p)):null;return l?Number(l.slice(p.length)):null;};
      const records=num('records: '),files=num('files: ');
-     cardano.message=Array.isArray(msg)?msg:null;
+     cardano.message=Array.isArray(msg)?msg:null;parsed=parseAnchorMessage(msg);
      if(!Array.isArray(msg)||msg[0]!=='ChainBridge data fingerprint v1'){cardano.status='mismatch';cardano.detail='The transaction exists but carries no ChainBridge fingerprint.';}
      else if(msg[2]!==c.commitment.root){cardano.status='mismatch';cardano.detail='The transaction carries a different fingerprint than this certificate.';}
      else if(records===null||records+(files??0)!==c.commitment.leafCount){cardano.status='mismatch';cardano.detail='The fingerprint matches but the record count in the transaction does not.';}
@@ -121,7 +122,17 @@ export function createShareService({dir,walletPath,blockfrostKey,publicBaseUrl,p
     else if(issuer.publishedByThisKey===false){issuer.status='invalid';issuer.detail='The signature is valid, but the Cardano record was published by a different wallet.';}
     else{issuer.status='valid';issuer.detail=issuer.publishedByThisKey?'Signed with the key that also published the Cardano record.':'The signature is valid. Whether this key published the Cardano record was not checked.';}
    }catch(e){issuer.status='invalid';issuer.detail=`The issuer key or signature is malformed (${e.message}).`;}
-   return {cardano,issuer};
+   // Version link: the series, version number and predecessor in the certificate must match the transaction.
+   let version=null;
+   if(c.series){
+    const s=c.series;
+    version=!parsed?{status:'not-checked',detail:'The Cardano record could not be read, so the version was not checked.'}
+     :parsed.series!==s.id?{status:'mismatch',detail:'On Cardano this transaction belongs to a different certificate series.'}
+     :parsed.version!==s.version?{status:'mismatch',detail:`On Cardano this is version ${parsed.version}, not ${s.version}.`}
+     :(parsed.prevTx??null)!==(s.previousTransaction??null)?{status:'mismatch',detail:'On Cardano this version points to a different previous version.'}
+     :{status:'valid',detail:s.version===1?'Version 1 of its series, as recorded on Cardano.':`Version ${s.version}, pointing to version ${s.version-1}, as recorded on Cardano.`};
+   }
+   return {cardano,issuer,version};
   },
  };
 }

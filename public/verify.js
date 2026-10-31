@@ -7,6 +7,7 @@
 import {h,mount,api,download,copyButton,spinner} from './ui.js';
 import {checkFile,validateCertificate} from '/core/certificate.mjs';
 import {sha256Hex} from '/core/documents.mjs';
+import {versionHistory} from './versions.js';
 
 const EXPLORER='https://preprod.cardanoscan.io/transaction/';
 const V={cert:null,link:null,server:null,serverError:null,file:null,fileResult:null,loadError:null,certLoading:false,fileLoading:false};
@@ -79,6 +80,11 @@ function cardanoCheck(){
  const when=c.blockTime?` Recorded ${date(c.blockTime)}${c.confirmations?`, ${c.confirmations.toLocaleString('en')} confirmations`:''}.`:'';
  return {status:c.status,text:c.detail+(c.status==='valid'?when:'')};
 }
+function versionCheck(){
+ if(V.serverError)return {status:'not-checked',text:'Not checked: the ChainBridge server could not be reached.'};
+ const v=V.server?.version;if(!V.server)return {status:'checking',text:'Checking the version link…'};
+ return v?{status:v.status,text:v.detail}:{status:'not-checked',text:'Not checked.'};
+}
 function issuerCheck(){
  if(V.serverError)return {status:'not-checked',text:'Not checked: the ChainBridge server could not be reached.'};
  const s=V.server?.issuer;if(!s)return {status:'checking',text:'Checking the signature…'};
@@ -113,7 +119,7 @@ function certSlot(){
  const c=V.cert;
  if(V.certLoading)return slot('1','The certificate','busy',h('div',{class:'slot-wait'},spinner('Opening the certificate…')));
  if(c)return slot('1','The certificate','done',
-  h('dl',{class:'slot-facts'},h('dt',{},'For the file'),h('dd',{},c.file.name),h('dt',{},'Issued'),h('dd',{},date(c.issuedAt)),h('dt',{},'Network'),h('dd',{},c.testNetwork?'Cardano Preprod (test network)':'Cardano')),
+  h('dl',{class:'slot-facts'},h('dt',{},'For the file'),h('dd',{},c.file.name),c.series&&[h('dt',{},'Version'),h('dd',{},`Version ${c.series.version} of series ${c.series.id}`)],h('dt',{},'Issued'),h('dd',{},date(c.issuedAt)),h('dt',{},'Network'),h('dd',{},c.testNetwork?'Cardano Preprod (test network)':'Cardano')),
   h('button',{class:'btn ghost small',type:'button',onclick:clearCert},'Use a different certificate'));
  const field=h('input',{type:'text',id:'certlink',class:'grow',placeholder:'Verification link or certificate ID',autocomplete:'off',spellcheck:'false',
   onkeydown:e=>{if(e.key==='Enter')onPaste(e.target.value);}});
@@ -147,7 +153,10 @@ function render(){
   c&&h('ol',{class:'checks'},
    row('File match','Does your file match the fingerprint in the certificate?',f,'Checked in this browser'),
    row('Cardano record','Does the Cardano transaction contain this fingerprint?',ca,srv?.cardano?.checkedBy),
+   c.series&&row('Version link','Do the series, version number and previous version match the Cardano record?',versionCheck(),srv?.cardano?.checkedBy),
    row('Issuer signature','Was the certificate signed by the key named as its issuer?',is,srv?.issuer?.checkedBy)),
+  c?.series&&versionHistory(c.cardano.transaction,{expectedRoot:c.commitment.root,title:'Earlier versions of this certificate'}),
+  c?.series&&h('p',{class:'small muted'},'This certificate can only show itself and the versions before it. If newer versions exist, ask the sender for the latest certificate.'),
   both&&h('div',{class:'split'},
    h('div',{class:'panel public'},h('h3',{},'What a match proves'),h('ul',{},
     h('li',{},'Your file is byte-for-byte the file that was sealed.'),

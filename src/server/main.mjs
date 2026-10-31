@@ -20,9 +20,10 @@ import {createX402Routes,x402Settings} from './x402-routes.mjs';
 import {publishFingerprint} from './cardano-anchor.mjs';
 import {extractDocument} from './ai-extract.mjs';
 import {createShareService,ShareError} from './share.mjs';
+import {createVersionService,VersionError} from './versions.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-const STATIC={'/':'public/index.html','/verify':'public/index.html','/verify.js':'public/verify.js','/app.js':'public/app.js','/ui.js':'public/ui.js','/zip.js':'public/zip.js','/wallet.js':'public/wallet.js','/payfx.js':'public/payfx.js','/styles.css':'public/styles.css'};
+const STATIC={'/':'public/index.html','/verify':'public/index.html','/verify.js':'public/verify.js','/versions.js':'public/versions.js','/app.js':'public/app.js','/ui.js':'public/ui.js','/zip.js':'public/zip.js','/wallet.js':'public/wallet.js','/payfx.js':'public/payfx.js','/styles.css':'public/styles.css'};
 const TYPES={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',mjs:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',csv:'text/csv; charset=utf-8',json:'application/json; charset=utf-8',woff2:'font/woff2',pdf:'application/pdf',png:'image/png'};
 const HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY',
  'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"};
@@ -36,7 +37,7 @@ function staticPath(pathname){
  return null;
 }
 
-export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbridge'),journalDir=join(root,'.local'),submit,ai=aiPlan,organize=sample=>aiOrganize(sample,{settings:aiSettings()}),x402,shares}={}){
+export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbridge'),journalDir=join(root,'.local'),submit,ai=aiPlan,organize=sample=>aiOrganize(sample,{settings:aiSettings()}),x402,shares,versions}={}){
  const audit=createAuditLog(join(dataDir,'audit.jsonl'));
  const tasks=createTaskService({store:createTaskStore(join(dataDir,'tasks')),audit,config,
   submit:submit??createSokosumiSubmitter(config),readJournal:id=>readWorkerJournal(id,journalDir),
@@ -46,7 +47,9 @@ export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbr
  // Shareable certificates. PUBLIC_BASE_URL is where other people can reach this app; without it links are local demo links.
  const share=shares??createShareService({dir:join(dataDir,'certificates'),walletPath:x402s.publishingWallet,blockfrostKey:x402s.blockfrostKey,
   publicBaseUrl:process.env.PUBLIC_BASE_URL?.trim(),port:config.port});
- const x402Handle=createX402Routes({settings:x402s,dataDir,audit,shares:share,resourceBase:`http://127.0.0.1:${config.port}`,
+ // Certificate versions: read from Cardano only, nothing stored.
+ const vers=versions??createVersionService({blockfrostKey:x402s.blockfrostKey});
+ const x402Handle=createX402Routes({settings:x402s,dataDir,audit,shares:share,versions:vers,resourceBase:`http://127.0.0.1:${config.port}`,
   analyze:aiSettings()?sample=>aiOrganize(sample,{settings:aiSettings()}):undefined,
   extract:aiSettings()?doc=>extractDocument(doc,{settings:aiSettings()}):undefined,
   publish:args=>publishFingerprint(args,{walletPath:x402s.publishingWallet,blockfrostKey:x402s.blockfrostKey,journalDir:join(journalDir,'anchors')})});
@@ -72,6 +75,12 @@ export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbr
     let m=url.pathname.match(/^\/api\/tasks\/([0-9a-f-]{36})$/);
     if(m){const t=tasks.refresh(m[1]);return send(res,200,publicTask(t));}
     if(url.pathname==='/api/audit')return send(res,200,audit.list());
+    m=url.pathname.match(/^\/api\/versions\/([0-9a-f]{64})(\/chain)?$/);
+    if(m){
+     if(!m[2])return send(res,200,await vers.predecessor(m[1]));
+     const root=url.searchParams.get('root');
+     return send(res,200,await vers.chain(m[1],{expectedRoot:/^[0-9a-f]{64}$/.test(root??'')?root:null}));
+    }
     m=url.pathname.match(/^\/api\/certificates\/([0-9a-f]{32})(\/qr\.svg)?$/);
     if(m&&m[2]){res.writeHead(200,{...HEADERS,'content-type':'image/svg+xml','cache-control':'no-cache'});return res.end(share.qrSvg(m[1]));}
     if(m)return send(res,200,share.get(m[1]));
@@ -100,7 +109,7 @@ export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbr
    if(m){const t=m[2]==='approve'?await tasks.approve(m[1],data):tasks.cancel(m[1]);return send(res,200,publicTask(t));}
    return send(res,404,{error:'Not found'});
   }catch(e){
-   if(e instanceof TaskError||e instanceof ShareError)return send(res,e.status,{error:e.message});
+   if(e instanceof TaskError||e instanceof ShareError||e instanceof VersionError)return send(res,e.status,{error:e.message});
    console.error('Request failed:',e.message);return send(res,500,{error:'Request failed. Check task status before retrying.'});
   }
  });
