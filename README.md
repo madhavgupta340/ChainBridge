@@ -18,7 +18,7 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification. 89 automated tests. |
+| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification, shareable file checks. 104 automated tests. |
 | Gets paid on Cardano | **Met (test network)** | x402 payment of 4.75 tADA, settled on Preprod only after publication (below). Also two Masumi escrow payments via Sokosumi. |
 | Does the job on Cardano | **Met (test network)** | Fingerprints published as transaction metadata, read back from the chain. |
 | Reads unstructured documents | **Met (test network)** | A 2-page PDF inspection report: 30 facts extracted, boilerplate and a planted instruction ignored, sealed and published (below). |
