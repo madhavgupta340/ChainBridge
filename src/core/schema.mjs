@@ -42,7 +42,7 @@ function valueSignals(values){
  if(share(v=>RX.iban.test(v.replace(/\s/g,'').toUpperCase())&&/^[A-Z]{2}\d{2}/.test(v))>=0.6)out.push(['Values look like IBANs','confidential']);
  if(share(v=>RX.card.test(v)&&luhn(v.replace(/\D/g,'')))>=0.6)out.push(['Values look like payment card numbers','confidential']);
  if(share(v=>RX.street.test(v))>=0.5)out.push(['Values look like street addresses','personal']);
- if(share(v=>RX.phone.test(v)&&v.replace(/\D/g,'').length>=8&&/[\s()+-]/.test(v))>=0.6)out.push(['Values look like phone numbers','personal']);
+ if(share(v=>RX.phone.test(v)&&!RX.isoDate.test(v)&&!RX.slashDate.test(v)&&v.replace(/\D/g,'').length>=8&&/[\s()+-]/.test(v))>=0.6)out.push(['Values look like phone numbers','personal']);
  return out;
 }
 

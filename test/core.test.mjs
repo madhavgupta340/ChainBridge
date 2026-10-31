@@ -109,6 +109,7 @@ test('Sensitivity heuristics flag personal and confidential fields; users can ov
  assert.equal(cs.certificate_id.type,'identifier');assert.equal(cs.product.sensitivity,'none');
  assert.equal(cs.inspector_name.sensitivity,'personal','person names are personal even with an unusual column name');
  assert.equal(cs.supplier.sensitivity,'none','company names are not flagged');
+ assert.equal(cs.inspection_date.sensitivity,'none','dates are not mistaken for phone numbers');
 });
 test('Schema summary for the AI planner contains no record values',()=>{
  const d=ingest({name:'p.json',text:sample('payroll-export.json')});

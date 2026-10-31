@@ -45,3 +45,42 @@ export function svg(tag,attrs={},...children){
  for(const c of children.flat(Infinity)){if(c===null||c===undefined||c===false)continue;el.append(c instanceof Node?c:document.createTextNode(String(c)));}
  return el;
 }
+
+// Dropdown in the app's own style (replaces native <select>). Keyboard: Enter/Space/Arrows open,
+// Arrows/Home/End move, Enter/Space choose, Escape/Tab close. options: [[value,label],...]
+export function dropdown({value,options,onChange,label,cls='',disabled=false,id}){
+ const index=Math.max(0,options.findIndex(o=>o[0]===value));
+ const listId=`dd-${Math.random().toString(36).slice(2,9)}`;
+ const button=h('button',{type:'button',class:'dd-btn',id,disabled,'aria-haspopup':'listbox','aria-expanded':'false','aria-controls':listId,
+  'aria-label':label?`${label}: ${options[index][1]}`:null},h('span',{class:'dd-value'},options[index][1]),h('span',{class:'dd-chev','aria-hidden':'true'}));
+ const items=options.map(([,text],i)=>h('li',{role:'option',tabindex:-1,'aria-selected':i===index?'true':'false',class:i===index?'sel':''},text));
+ const list=h('ul',{class:'dd-list',role:'listbox',id:listId,'aria-label':label,hidden:true},items);
+ const wrap=h('div',{class:`dd ${cls}`},button,list);
+ const outside=e=>{if(!wrap.contains(e.target))close(false);};
+ function open(at=index){
+  if(disabled)return;
+  list.hidden=false;button.setAttribute('aria-expanded','true');wrap.classList.add('open');
+  wrap.classList.toggle('up',button.getBoundingClientRect().bottom+list.offsetHeight+12>window.innerHeight&&button.getBoundingClientRect().top>list.offsetHeight);
+  items[at]?.focus();document.addEventListener('mousedown',outside);
+ }
+ function close(refocus=true){
+  if(list.hidden)return;
+  list.hidden=true;button.setAttribute('aria-expanded','false');wrap.classList.remove('open','up');
+  document.removeEventListener('mousedown',outside);if(refocus)button.focus();
+ }
+ function choose(i){close();if(i!==index)onChange(options[i][0]);}
+ button.addEventListener('click',()=>list.hidden?open():close());
+ button.addEventListener('keydown',e=>{if(['ArrowDown','ArrowUp','Enter',' '].includes(e.key)){e.preventDefault();open(e.key==='ArrowUp'?Math.max(0,index-1):index);}});
+ items.forEach((li,i)=>{
+  li.addEventListener('click',()=>choose(i));
+  li.addEventListener('keydown',e=>{
+   const move=j=>{e.preventDefault();items[(j+items.length)%items.length].focus();};
+   if(e.key==='ArrowDown')move(i+1);else if(e.key==='ArrowUp')move(i-1);
+   else if(e.key==='Home')move(0);else if(e.key==='End')move(items.length-1);
+   else if(e.key==='Enter'||e.key===' '){e.preventDefault();choose(i);}
+   else if(e.key==='Escape'){e.preventDefault();close();}
+   else if(e.key==='Tab')close(false);
+  });
+ });
+ return wrap;
+}

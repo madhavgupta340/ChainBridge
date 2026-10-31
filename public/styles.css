@@ -277,3 +277,22 @@ td.changed-cell{color:var(--signal);font-weight:500}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 .pay-options .btn{text-transform:none;letter-spacing:.02em;font-size:.8rem}
+
+/* ---------- dropdown (custom, replaces native select) ---------- */
+.dd{position:relative;display:inline-block;min-width:180px;vertical-align:middle}
+.dd-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:1rem;font:inherit;font-size:.9rem;text-align:left;
+ padding:.6rem .75rem;border:1px solid var(--line-2);border-radius:0;background:var(--paper);color:var(--ink);cursor:pointer}
+.dd-btn:hover:not(:disabled),.dd.open .dd-btn{border-color:var(--ink)}
+.dd-btn:disabled{opacity:.5;cursor:not-allowed}
+.dd-chev{width:7px;height:7px;flex:none;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-2px) rotate(45deg);transition:transform .15s}
+.dd.open .dd-chev{transform:translateY(2px) rotate(-135deg)}
+.dd-list{position:absolute;left:0;right:0;top:calc(100% - 1px);z-index:30;margin:0;padding:0;list-style:none;background:var(--paper);
+ border:1px solid var(--ink);box-shadow:0 14px 30px -18px rgba(0,0,0,.45)}
+.dd.up .dd-list{top:auto;bottom:calc(100% - 1px)}
+.dd-list li{margin:0;padding:.6rem .75rem .6rem 2rem;cursor:pointer;position:relative;font-size:.9rem;border-bottom:1px solid var(--line)}
+.dd-list li:last-child{border-bottom:0}
+.dd-list li.sel::before{content:"";position:absolute;left:.8rem;top:50%;width:6px;height:6px;margin-top:-3px;background:var(--signal)}
+.dd-list li:hover,.dd-list li:focus{background:var(--ink);color:var(--paper);outline:none}
+.dd.sens.personal .dd-btn{border-color:var(--warn);color:var(--warn)}
+.dd.sens.confidential .dd-btn{border-color:var(--bad);color:var(--bad)}
+.dd.wide{min-width:min(420px,100%)}

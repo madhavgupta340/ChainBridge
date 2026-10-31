@@ -4,7 +4,7 @@
 // The signed payment is only settled after the fingerprint is published; if anything fails before, nothing is charged.
 // Parsing, labelling, tidying, fingerprinting and checking run here in the browser. The agent receives only
 // counts (for the quote), a masked sample (for the AI) and record fingerprints (to publish).
-import {h,svg,mount,display,toast,api,download,short,copyButton} from './ui.js';
+import {h,svg,dropdown,mount,display,toast,api,download,short,copyButton} from './ui.js';
 import {availableWallets,connect,signPayment} from './wallet.js';
 import {zip,toCsv} from './zip.js';
 import {ingest} from '/core/ingest.mjs';
@@ -191,9 +191,9 @@ function drawing(){
 
 // ---------- 2. review (free) ----------
 function sensSelect(f,i){
- return h('select',{class:`sens ${f.sensitivity}`,'aria-label':`Privacy label for ${f.name}`,disabled:!!S.session&&S.session.status!=='quoted',
-  onchange:e=>{S.schema[i]=applyOverride(f,{sensitivity:e.target.value});if(S.session?.status==='quoted')S.session=null;revalidate();render();}},
-  SENSITIVITY.map(s=>h('option',{value:s,selected:s===f.sensitivity},SENS_LABEL[s])));
+ return dropdown({cls:`sens ${f.sensitivity}`,label:`Privacy label for ${f.name}`,disabled:!!S.session&&S.session.status!=='quoted',value:f.sensitivity,
+  options:SENSITIVITY.map(s=>[s,SENS_LABEL[s]]),
+  onChange:v=>{S.schema[i]=applyOverride(f,{sensitivity:v});if(S.session?.status==='quoted')S.session=null;revalidate();render();}});
 }
 function viewReview(){
  const d=S.data,recs=d.records;
@@ -219,7 +219,7 @@ function viewReview(){
    h('div',{class:'table-wrap'},h('table',{},
     h('thead',{},h('tr',{},h('th',{scope:'col'},'Column'),h('th',{scope:'col'},'Kind of data'),h('th',{scope:'col'},'Privacy label'))),
     h('tbody',{},S.schema.map((f,i)=>h('tr',{},h('th',{scope:'row'},f.name),
-     h('td',{},h('select',{'aria-label':`Kind of data in ${f.name}`,onchange:e=>{S.schema[i]=applyOverride(f,{type:e.target.value});render();}},FIELD_TYPES.map(t=>h('option',{value:t,selected:t===f.type},TYPE_LABEL[t])))),
+     h('td',{},dropdown({label:`Kind of data in ${f.name}`,value:f.type,options:FIELD_TYPES.map(t=>[t,TYPE_LABEL[t]]),onChange:v=>{S.schema[i]=applyOverride(f,{type:v});render();}})),
      h('td',{},sensSelect(f,i)))))))),
   tech(h('p',{},'Privacy labels come from column-name patterns (e.g. email, phone, iban, salary, …name) and value patterns (email addresses, IBANs, card numbers, street addresses, person names).')),
   actions({back:0,next:2,nextLabel:'See the price →'}),
@@ -543,8 +543,8 @@ function viewVerify(){
  return [
   ...heading('Verify a record','Pick a record and check it against the fingerprint. Try changing a value to see what happens when data is altered.'),
   h('div',{class:'field'},h('label',{for:'vrow'},'Record to check'),
-   h('select',{id:'vrow',onchange:e=>{S.verify={sourceRow:Number(e.target.value)};render();}},
-    rows.map(r=>h('option',{value:r,selected:r===current},recordLabel(S.data.records.find(x=>x.sourceRow===r)))))),
+   dropdown({id:'vrow',cls:'wide',label:'Record to check',value:current,options:rows.map(r=>[r,recordLabel(S.data.records.find(x=>x.sourceRow===r))]),
+    onChange:v=>{S.verify={sourceRow:v};render();}})),
   h('div',{class:'vgrid'},S.plan.fields.map((f,i)=>{
    const diff=display(edited[f])!==display(rec.values[f]);
    return h('div',{class:`field ${diff?'changed':''}`},h('label',{for:`vf-${i}`},f,diff&&h('span',{class:'tag warn'},'changed')),
