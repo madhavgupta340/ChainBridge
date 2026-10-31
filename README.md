@@ -75,15 +75,10 @@ Recorded on 31 Oct 2026 from the running app on Cardano Preprod (test network, t
 **A different file is caught:** here the old report (version 1) is checked against version 2's certificate.
 ![Different file](docs/screenshots/18-check-different-file.png)
 
-### 4. Versions and the public page
+### 4. Add a version
 
 **Add a version:** paste the latest certificate's transaction. ChainBridge reads it from Cardano and continues the series.
 ![Add a version](docs/screenshots/19-add-a-version.png)
-
-**Public check page (GitHub Pages):** the same check with no server.
-- **Link:** https://madhavgupta340.github.io/ChainBridge/
-- **Here:** a certificate is loaded and the page is waiting for the file.
-![Public check page](docs/screenshots/20-public-check-page.png)
 
 ## Track status (honest)
 
@@ -354,19 +349,16 @@ It contains no record values, no extracted facts, no other files' hashes and no 
 
 Certificates are stored in `.local/chainbridge/certificates/` (file hash and proof only). They are created only for completed, published jobs, and only if the file's proof leads to the published root.
 
-## Public check page (GitHub Pages)
+## Public check page (static build, not deployed)
 
-The **Check a document** screen also runs as a static website: https://madhavgupta340.github.io/ChainBridge/ (once Pages is enabled). It has no server and no API keys.
+The **Check a document** screen can also be built as a static website with no server and no API keys. It was briefly published on GitHub Pages and then taken down, so it isn't online.
 - **File match:** the file is hashed in the visitor's browser and never uploaded, as in the app.
 - **Cardano record and version history:** read in the browser from the public **Koios** API (Cardano Preprod), using the same chain walk as the server (`src/core/versionchain.mjs`).
 - **Issuer signature:** verified in the browser with WebCrypto Ed25519. A BLAKE2b key hash (`src/core/cardano-address.mjs`, tested against the Cardano Serialization Lib) confirms the key owns the address that published the transaction.
 - **When Koios is busy or unreachable** (it rate-limits shared networks), the Cardano checks show **Not checked** with the transaction link, never Valid.
 - **What it doesn't do:** seal, pay or look up certificates by link. Visitors open the certificate file. Sealing stays in the local app.
 
-**Building and publishing:**
-- `npm run build:pages` builds it to `dist/pages`.
-- `.github/workflows/pages.yml` publishes it on every push to `main`.
-- **One-time setup:** repository Settings → Pages → Source: **GitHub Actions**.
+**Building:** `npm run build:pages` builds it to `dist/pages`, ready for any static host. Nothing publishes it automatically.
 
 ## Linked certificate versions
 
