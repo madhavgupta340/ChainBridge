@@ -30,7 +30,7 @@ const pill=c=>c?h('span',{class:`pill ${KIND[c.status]??'none'}`},LABEL[c.status
 function rows(r,{onRefresh}){
  const bad=r.versions.filter(v=>[v.tx,v.record,v.link].some(c=>c&&c.status!=='valid'));
  return [
-  r.complete?note('ok',h('strong',{},`All ${r.versions.length} version${r.versions.length>1?'s':''} check out. `),'Each one links to the version before it, back to version 1, and matches what is recorded on Cardano.')
+  r.complete?note('ok',h('strong',{},r.versions.length>1?`All ${r.versions.length} versions check out. `:'Version 1 checks out. '),r.versions.length>1?'Each one links to the version before it, back to version 1, and matches what is recorded on Cardano.':'It is the first version of this series and matches what is recorded on Cardano.')
    :bad.length?note('error',h('strong',{},'The chain has a problem. '),bad.map(v=>[v.tx,v.record,v.link].find(c=>c&&c.status!=='valid')?.detail).filter(Boolean)[0]??'')
    :r.stop==='too-long'?note('warn',`Only the newest ${r.versions.length} versions were followed.`):null,
   h('ol',{class:'vlist'},r.versions.map((v,i)=>h('li',{class:'vrow'},

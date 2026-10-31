@@ -26,6 +26,12 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 
 ### Evidence log (Cardano Preprod, 2026-10-31; test tokens, no real value)
 
+**Linked certificate versions: a two-version chain** (series `s-02fa028c02586bd3`):
+
+- **Version 1** (inspection report PDF, 3.25 tADA): published in block 5357119, [`0b75d294…92ffc4`](https://preprod.cardanoscan.io/transaction/0b75d2946fcf181a3f1df3003da3091091f618a8b84bf54c83556992c292ffc4). Payment [`38c4f568…fa3b61`](https://preprod.cardanoscan.io/transaction/38c4f5680a684c197a2b08ac84f7fb3db2211c56e17bc2e1590b1f765afa3b61). The facilitator's settle call timed out (504) and the job was marked "needs inspection"; the payment was then found confirmed on-chain and the record corrected, with the original error kept.
+- **Version 2** (inspection photo, 2.75 tADA): published in block 5357128, [`c8fe30fc…e8a165`](https://preprod.cardanoscan.io/transaction/c8fe30fc8162ace5bdb24b766e25be6c7ad2dc6c20d1a7e1260c44fe66e8a165). Its metadata carries `prev tx:` pointing to version 1. Payment [`e22e7bbc…2cf92d`](https://preprod.cardanoscan.io/transaction/e22e7bbcab6033894a4ac504f40a4fe9dcc50f2b4ce789f0c42d61c36b2cf92d).
+- **Check tab with version 2's file certificate and the photo:** file match, Cardano record, version link and issuer signature all Valid. "All 2 versions check out", rebuilt from Cardano.
+
 **Shareable verification: PDF inspection report with a file certificate** (same sample, quoted 3.25 tADA, 29 facts sealed as 1 record plus 1 file leaf):
 
 - Fingerprint `e903647cfa7f5a99dca7919e76cda832f11832895258fb1bc56c577770563269` (2 leaves)

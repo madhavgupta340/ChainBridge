@@ -683,7 +683,11 @@ async function publishAndFinish(){
     buttons:[['Get your package →',()=>go(6),true]]});
    return;
   }
-  fx.fail({headline:s.status==='settle-failed'?'Published, payment not completed':'Not charged',detail:[h('span',{},s.error??`Status: ${s.status}`)],buttons:[['Close',null,true]]});
+  // Only "failed" means nothing was published or charged. After publication the payment may be done or unknown.
+  const headline=s.status==='settle-failed'?'Published, payment not completed':s.status==='needs-inspection'?'Published, payment not confirmed':'Not charged';
+  fx.fail({headline,detail:[h('span',{},s.status==='needs-inspection'
+    ?'Your fingerprint is on Cardano, but the payment service did not answer in time. The payment may still have gone through: check the payer wallet on Cardano before doing anything else, and do not pay again.'
+    :s.error??`Status: ${s.status}`)],buttons:[['Close',null,true]]});
  }catch(e){
   try{S.session=await api(`/api/x402/session/${S.session.id}`);}catch{}
   S.busy=false;refreshActivity();render();
