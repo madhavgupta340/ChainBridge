@@ -37,3 +37,11 @@ export const short=hash=>hash?`${hash.slice(0,10)}…${hash.slice(-6)}`:'';
 export function copyButton(text,label='Copy'){
  return h('button',{class:'btn ghost small',type:'button',onclick:async()=>{try{await navigator.clipboard.writeText(text);toast('Copied');}catch{toast('Copy failed','error');}}},label);
 }
+
+// SVG elements (namespaced). Text still goes through text nodes only.
+export function svg(tag,attrs={},...children){
+ const el=document.createElementNS('http://www.w3.org/2000/svg',tag);
+ for(const [k,v] of Object.entries(attrs??{}))if(v!==undefined&&v!==null&&v!==false)el.setAttribute(k,String(v));
+ for(const c of children.flat(Infinity)){if(c===null||c===undefined||c===false)continue;el.append(c instanceof Node?c:document.createTextNode(String(c)));}
+ return el;
+}

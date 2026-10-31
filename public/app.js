@@ -4,7 +4,7 @@
 // The signed payment is only settled after the fingerprint is published; if anything fails before, nothing is charged.
 // Parsing, labelling, tidying, fingerprinting and checking run here in the browser. The agent receives only
 // counts (for the quote), a masked sample (for the AI) and record fingerprints (to publish).
-import {h,mount,display,toast,api,download,short,copyButton} from './ui.js';
+import {h,svg,mount,display,toast,api,download,short,copyButton} from './ui.js';
 import {availableWallets,connect,signPayment} from './wallet.js';
 import {zip,toCsv} from './zip.js';
 import {ingest} from '/core/ingest.mjs';
@@ -40,7 +40,7 @@ function go(i){
  if(!canOpen(i))return;
  S.view=i;render();
  window.scrollTo({top:0,behavior:'smooth'});
- $('view').querySelector('h2')?.focus({preventScroll:true});
+ $('view').querySelector('h1,h2')?.focus({preventScroll:true});
 }
 function changed(){if(!complete())S.commitment=null;S.verify=null;revalidate();render();}
 
@@ -52,7 +52,12 @@ function expander(cls,key,summary,children){
 const tech=(...children)=>expander('tech','tech','Details for technical users',children);
 const more=(key,summary,...children)=>expander('more',key,summary,children);
 const note=(kind,...children)=>h('div',{class:`note ${kind}`,role:kind==='error'?'alert':null},...children);
-const heading=(text,sub)=>[h('h2',{tabindex:-1},text),sub&&h('p',{class:'lead'},sub)];
+const pad=n=>String(n).padStart(2,'0');
+function heading(text,sub){
+ const i=S.view,isVerify=i===VERIFY,isPaid=!isVerify&&i>=3&&i<=5;
+ return [h('div',{class:'eyebrow'},h('span',{class:'num'},isVerify?'Tool':`Step ${pad(i+1)} / ${pad(STEPS.length)}`),h('span',{},isVerify?'Free, on this device':STEPS[i]),isPaid&&h('span',{class:'paid-tag'},'Paid')),
+  h('h2',{tabindex:-1},text),sub&&h('p',{class:'lead'},sub)];
+}
 function actions({back,next,nextLabel,nextHint,disabled}){
  return h('div',{class:'actions'},
   back!==undefined?h('button',{class:'btn ghost',type:'button',onclick:()=>go(back)},'← Back'):h('span'),
@@ -97,11 +102,11 @@ function renderStepper(){
    const isPaid=i>=3&&i<=5;
    return h('li',{class:`${current?'current':''} ${done?'done':''} ${isPaid?'paid-step':''}`},
     h('button',{type:'button','aria-label':`Step ${i+1}: ${label}${isPaid?' (paid)':''}`,disabled:!canOpen(i),'aria-current':current?'step':null,onclick:()=>go(i)},
-     h('span',{class:'dot','aria-hidden':'true'},done&&!current?'✓':i+1),h('span',{class:'label'},label)));
+     h('span',{class:'dot','aria-hidden':'true'},done&&!current?`✓ ${pad(i+1)}`:pad(i+1)),h('span',{class:'label'},label)));
   }),
   h('li',{class:`optional ${S.view===VERIFY?'current':''}`},
    h('button',{type:'button','aria-label':'Verify a record',disabled:!canOpen(VERIFY),'aria-current':S.view===VERIFY?'step':null,onclick:()=>go(VERIFY),title:canOpen(VERIFY)?null:'Create a fingerprint first'},
-    h('span',{class:'dot','aria-hidden':'true'},'✓'),h('span',{class:'label'},'Verify a record'))));
+    h('span',{class:'dot','aria-hidden':'true'},'Tool'),h('span',{class:'label'},'Verify a record'))));
 }
 function render(){
  renderHeader();renderStatus();renderStepper();
@@ -137,10 +142,12 @@ function viewUpload(){
  const L=S.config.limits,d=S.data;
  const input=h('input',{type:'file',id:'file',accept:'.csv,.json,text/csv,application/json',class:'visually-hidden',onchange:e=>onFile(e.target.files[0])});
  return [
-  ...heading('Upload data'),
-  h('div',{class:'intro'},
-   h('p',{},'ChainBridge tidies your data with AI, seals it with a digital fingerprint, and publishes that fingerprint on the Cardano blockchain as public proof. Your file stays on your device.'),
-   h('p',{class:'small'},'You see the price before you pay anything. You pay once, and only when your fingerprint has been published.')),
+  h('section',{class:'hero'},
+   h('div',{},
+    h('div',{class:'eyebrow'},h('span',{class:'num'},`Step 01 / ${pad(STEPS.length)}`),h('span',{},'Data integrity agent on Cardano')),
+    h('h1',{tabindex:-1},'Seal your data.',h('br'),'Prove it later',h('span',{class:'dot'},'.')),
+    h('p',{class:'lead'},'ChainBridge tidies your spreadsheet with AI, seals it with a digital fingerprint, and publishes that fingerprint on the Cardano blockchain. Your file never leaves this device. You see the price first, and pay only when the fingerprint is published.')),
+   drawing()),
   h('div',{class:'upload'},input,
    h('label',{for:'file',class:'drop',ondragover:e=>{e.preventDefault();e.currentTarget.classList.add('over');},ondragleave:e=>e.currentTarget.classList.remove('over'),
     ondrop:e=>{e.preventDefault();e.currentTarget.classList.remove('over');onFile(e.dataTransfer.files[0]);}},
@@ -156,6 +163,30 @@ function viewUpload(){
    more('skipped','Show skipped rows',h('ul',{},d.issues.slice(0,50).map(i=>h('li',{},`Row ${i.row}: ${i.message}`))))):null,
   actions({next:1,disabled:!d,nextHint:d?null:'Choose a file or a sample to continue'}),
  ];
+}
+
+// Technical drawing of the service: records → fingerprints → one root → Cardano.
+function drawing(){
+ const line=(x1,y1,x2,y2,extra={})=>svg('line',{x1,y1,x2,y2,stroke:'currentColor','stroke-width':1,...extra});
+ const box=(x,y,w,hh,label,cls)=>[svg('rect',{x,y,width:w,height:hh,fill:'none',stroke:'currentColor','stroke-width':1}),svg('text',{x:x+w/2,y:y+hh/2+3,'text-anchor':'middle',class:cls},label)];
+ const cx=[52,130,208,286];                       // record centres
+ const mid=[91,247],root=169;                       // pair centres, root centre
+ return h('figure',{class:'drawing','aria-label':'Diagram: your records are fingerprinted, combined into one fingerprint, and that fingerprint is published on Cardano'},
+  h('div',{class:'drawing-head'},h('span',{},'ChainBridge · Seal · Cutaway'),h('span',{},'SHA-256 · Merkle')),
+  svg('svg',{viewBox:'0 0 400 280',role:'img'},
+   cx.map((x,i)=>box(x-28,214,56,26,`REC ${pad(i+1)}`)),
+   cx.map(x=>line(x,214,x,204)),line(cx[0],204,cx[1],204),line(cx[2],204,cx[3],204),
+   mid.map(x=>line(x,204,x,196)),
+   mid.map((x,i)=>box(x-36,166,72,30,i?'H(03,04)':'H(01,02)')),
+   mid.map(x=>line(x,166,x,150)),line(mid[0],150,mid[1],150),line(root,150,root,124),
+   box(root-56,92,112,32,'ROOT · a33b…aaa9','strong'),
+   line(root,92,root,52,{'stroke-dasharray':'3 3'}),
+   svg('circle',{cx:root,cy:52,r:3,fill:'var(--signal)',stroke:'none'}),
+   box(root-78,18,156,30,'CARDANO TX · LABEL 674','accent'),
+   line(326,214,336,214),line(326,240,336,240),line(336,214,336,240),svg('text',{x:342,y:230},'PRIVATE'),
+   line(root+60,108,326,108),svg('text',{x:330,y:111},'PUBLIC'),
+   svg('text',{x:12,y:270},'Records stay on device · only the root is published')),
+  h('div',{class:'drawing-table'},h('div',{},'Network',h('b',{},'Preprod')),h('div',{},'Payment',h('b',{},'x402')),h('div',{},'AI',h('b',{},'Meta')),h('div',{},'Rev',h('b',{},'1'))));
 }
 
 // ---------- 2. review (free) ----------
@@ -261,7 +292,7 @@ function viewPrice(){
      wallets.map(w=>h('button',{class:'btn primary',type:'button',onclick:()=>payWith(w.key)},w.icon&&h('img',{src:w.icon,alt:'',class:'wallet-icon'}),`Accept and pay with ${w.name}`)),
      !wallets.length&&note('info','No Cardano browser wallet found. To pay with your own wallet, install Lace or Eternl in Chrome, switch it to Preprod (test network), and get free test ADA from the Cardano faucet.'),
      x.demoWallet&&h('button',{class:wallets.length?'btn':'btn primary',type:'button',onclick:()=>payWith('demo')},
-      `Accept and pay with the demo test wallet (${x.demoWallet.balance??'?'} tADA)`),
+      `Accept and pay with the demo test wallet · balance ${x.demoWallet.balance!=null?ada(x.demoWallet.balance*1e6):'?'} tADA`),
      h('button',{class:'btn ghost',type:'button',onclick:()=>{S.session=null;render();toast('Quote cancelled. Nothing was charged.');}},'Cancel')),
     x.demoWallet&&h('p',{class:'small muted'},'The demo test wallet lives on this laptop so the service can be shown without a wallet extension. With a real wallet, you approve the payment in the wallet itself.'),
    ],

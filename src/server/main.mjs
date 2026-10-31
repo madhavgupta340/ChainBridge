@@ -21,7 +21,7 @@ import {publishFingerprint} from './cardano-anchor.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const STATIC={'/':'public/index.html','/app.js':'public/app.js','/ui.js':'public/ui.js','/zip.js':'public/zip.js','/wallet.js':'public/wallet.js','/styles.css':'public/styles.css'};
-const TYPES={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',mjs:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',csv:'text/csv; charset=utf-8',json:'application/json; charset=utf-8'};
+const TYPES={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',mjs:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',csv:'text/csv; charset=utf-8',json:'application/json; charset=utf-8',woff2:'font/woff2'};
 const HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY',
  'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"};
 
@@ -29,6 +29,7 @@ function staticPath(pathname){
  if(STATIC[pathname])return STATIC[pathname];
  let m=pathname.match(/^\/core\/([a-z-]+\.mjs)$/);if(m)return `src/core/${m[1]}`;
  m=pathname.match(/^\/samples\/([a-z0-9-]+\.(csv|json))$/);if(m)return `samples/${m[1]}`;
+ m=pathname.match(/^\/fonts\/((Geist|GeistMono)-Variable\.woff2)$/);if(m)return `public/fonts/${m[1]}`;
  return null;
 }
 
