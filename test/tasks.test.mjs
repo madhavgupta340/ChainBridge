@@ -131,7 +131,7 @@ test('Status refresh follows the worker journal without skipping backwards',asyn
  }finally{done();}
 });
 test('Sokosumi CLI arguments follow the documented create command',()=>{
- assert.deepEqual(createTaskArgs({coworkerId:'cw',organizationSlug:null,name:'n',description:'d'}),['--preprod','tasks','create','--personal','--coworker-id','cw','--name','n','--description','d','--status','READY','--json']);
+ assert.deepEqual(createTaskArgs({coworkerId:'cw',organizationSlug:null,name:'n',description:'d'}),['--preprod','tasks','create','--coworker-id','cw','--name','n','--description','d','--status','READY','--json']);
  assert.deepEqual(createTaskArgs({coworkerId:'cw',organizationSlug:'tum',name:'n',description:'d'}).slice(3,5),['--organization-slug','tum']);
  assert.equal(taskIdFrom({task:{id:'abc-1'}}),'abc-1');assert.equal(taskIdFrom({}),null);assert.equal(taskIdFrom({id:'../etc'}),null);
 });

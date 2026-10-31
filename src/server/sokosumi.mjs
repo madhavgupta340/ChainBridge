@@ -3,8 +3,10 @@
 import {execFile} from 'node:child_process';
 import {existsSync,readFileSync} from 'node:fs';
 
+// Without an organization slug the CLI's login session targets the personal Workspace by default.
+// `--personal` is not passed: in CLI 1.0.4 it first calls a Core route that Preprod no longer serves (404).
 export function createTaskArgs({coworkerId,organizationSlug,name,description}){
- return ['--preprod','tasks','create',...(organizationSlug?['--organization-slug',organizationSlug]:['--personal']),
+ return ['--preprod','tasks','create',...(organizationSlug?['--organization-slug',organizationSlug]:[]),
   '--coworker-id',coworkerId,'--name',name,'--description',description,'--status','READY','--json'];
 }
 
