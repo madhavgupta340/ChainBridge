@@ -735,20 +735,29 @@ async function createShares(){
   render();
  }
 }
+// The QR code is sized to run from the file name down to the end of the link notice, so both columns line up.
+function fitQr(img,body,first,last){
+ const ro=new ResizeObserver(()=>{
+  if(!img.isConnected){ro.disconnect();return;}
+  const size=matchMedia('(max-width:640px)').matches?180:Math.round(last.getBoundingClientRect().bottom-first.getBoundingClientRect().top);
+  if(size>0)img.style.width=img.style.height=`${size}px`;
+ });
+ ro.observe(body);
+}
 function shareCard(x){
  if(x.status==='creating')return h('li',{class:'share-card'},h('div',{},h('strong',{},x.file.name),h('p',{class:'muted'},'Creating the certificate…')));
  if(x.status==='error')return h('li',{class:'share-card'},h('div',{},h('strong',{},x.file.name),note('error',x.error),h('button',{class:'btn small',type:'button',onclick:createShares},'Try again')));
  const local=x.link.kind!=='public',id=x.certificate.id;
+ const img=h('img',{src:`/api/certificates/${id}/qr.svg`,alt:`QR code for the verification link of ${x.file.name}`,width:150,height:150});
+ const name=h('strong',{},x.file.name);
+ const notice=local?note('warn',h('strong',{},'Local demo link. '),'It only opens on a computer running this ChainBridge app, so other people can\'t use it yet. To share it, run ChainBridge at a public address and set PUBLIC_BASE_URL. Until then, send the certificate file: it opens in the "Check a document" tab of any ChainBridge.')
+  :h('p',{class:'small'},'Anyone with this link can check their copy of the file.');
+ const body=h('div',{class:'share-body'},name,h('code',{class:'share-url break'},x.link.url),notice,
+  h('div',{class:'row'},h('button',{class:'btn small',type:'button',onclick:()=>setArea('check',id)},'Try the check yourself →'),copyButton(x.link.url,'Copy link'),
+   h('button',{class:'btn small ghost',type:'button',onclick:()=>download(`chainbridge-file-certificate-${id.slice(0,8)}.json`,JSON.stringify(x.certificate,null,2))},'Download certificate')));
+ fitQr(img,body,name,notice);
  return h('li',{class:`share-card ${local?'local':''}`},
-  h('figure',{class:'qr'},h('img',{src:`/api/certificates/${id}/qr.svg`,alt:`QR code for the verification link of ${x.file.name}`,width:150,height:150}),
-   h('figcaption',{class:'mono-key'},local?'Local demo QR':'Scan to verify')),
-  h('div',{class:'share-body'},
-   h('strong',{},x.file.name),
-   h('code',{class:'share-url break'},x.link.url),
-   local?note('warn',h('strong',{},'Local demo link. '),'It only opens on a computer running this ChainBridge app, so other people can\'t use it yet. To share it, run ChainBridge at a public address and set PUBLIC_BASE_URL. Until then, send the certificate file: it opens on any ChainBridge verify page.')
-    :h('p',{class:'small'},'Anyone with this link can check their copy of the file.'),
-   h('div',{class:'row'},h('button',{class:'btn small',type:'button',onclick:()=>setArea('check',id)},'Try the check yourself →'),copyButton(x.link.url,'Copy link'),
-    h('button',{class:'btn small ghost',type:'button',onclick:()=>download(`chainbridge-file-certificate-${id.slice(0,8)}.json`,JSON.stringify(x.certificate,null,2))},'Download certificate'))));
+  h('figure',{class:'qr'},img,h('figcaption',{class:'mono-key'},local?'Local demo QR':'Scan to verify')),body);
 }
 function viewShare(){
  const c=S.commitment;

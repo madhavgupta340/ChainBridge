@@ -398,8 +398,8 @@ td.changed-cell{color:var(--signal);font-weight:500}
 .upload.single .drop{border-right:0}
 .share-list,.checks{list-style:none;padding:0;margin:1.2rem 0;border-top:1px solid var(--line-2)}
 .share-card{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1.4rem;padding:1.3rem 0;border-bottom:1px solid var(--line)}
-.share-card .qr{margin:0;display:grid;gap:.4rem;justify-items:center}
-.share-card .qr img{width:150px;height:150px;display:block;background:#fff;border:1px solid var(--line-2)}
+.share-card .qr{margin:0;display:flex;flex-direction:column;gap:.55rem;align-items:center}
+.share-card .qr img{width:150px;height:150px;display:block;background:#fff;border:1px solid var(--line-2);image-rendering:pixelated}
 .share-card.local .qr img{opacity:.55}
 .share-body{display:grid;gap:.6rem;align-content:start;min-width:0}
 .share-body .note{margin:0}
