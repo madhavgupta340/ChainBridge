@@ -79,9 +79,9 @@ code,pre{font-family:var(--mono);font-size:.8rem}
 
 /* ---------- stepper ---------- */
 .stepper{list-style:none;margin:0 0 3rem;padding:0;display:flex;flex-wrap:wrap;border-bottom:1px solid var(--line)}
-.stepper li{flex:1 1 0;min-width:0;margin:0}
+.stepper li{flex:1 1 0;min-width:0;margin:0;display:flex}
 .stepper li.optional{flex:0 0 auto;margin-left:auto;border-left:1px solid var(--line)}
-.stepper button{width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:.15rem;font:inherit;text-align:left;background:none;border:0;
+.stepper button{width:100%;align-self:stretch;display:flex;flex-direction:column;align-items:flex-start;gap:.15rem;font:inherit;text-align:left;background:none;border:0;
  border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--ink-3);padding:.9rem .9rem .8rem 0;cursor:pointer}
 .stepper li+li button{padding-left:.9rem}
 .stepper button:disabled{cursor:not-allowed;opacity:.5}
