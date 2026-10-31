@@ -29,7 +29,7 @@ export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publ
  const save=s=>{s.updatedAt=new Date().toISOString();writeFileSync(file(s.id),JSON.stringify(s),{mode:0o600});return s;};
  const log=(s,event,extra={})=>audit?.append({event,taskId:s.id,kind:'x402',mode:'x402',network:'Preprod',price:`${s.quote.totalLovelace/1e6} tADA`,
   paymentStatus:s.status,recordCount:s.quote.measurements.records??s.quote.measurements.documents,...extra});
- const view=s=>({id:s.id,status:s.status,quote:s.quote,payer:s.payer??null,analysis:s.analysis??null,extraction:s.extraction??null,publication:s.publication??null,
+ const view=s=>({id:s.id,status:s.status,quote:s.quote,payer:s.payer??null,fingerprint:s.fingerprint??null,analysis:s.analysis??null,extraction:s.extraction??null,publication:s.publication??null,
   settlement:s.settlement??null,error:s.error??null,createdAt:s.createdAt,paidAt:s.paidAt??null,expiresAt:s.expiresAt??null});
  const needPaid=s=>{
   if(!['paid','analyzed'].includes(s.status))throw new X402Error(402,s.status==='quoted'?'Payment required':`Session is ${s.status}`);
@@ -38,6 +38,8 @@ export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publ
 
  return {
   get:id=>view(load(id)),
+  // Saved session for the certificate issuer (it only reads status, fingerprint and publication).
+  raw:id=>{const {payment,...rest}=load(id);return rest;},
 
   // 1. Free quote. Only measurements (counts) are sent, no data.
   quote(measurements){
@@ -129,18 +131,21 @@ export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publ
   },
 
   // 5. Paid: check the fingerprint, publish it on Cardano, then settle the payment.
-  async publish(id,{payload,leaves}){
+  // `files`: how many of the leaves are source-file leaves (after the record leaves), for shareable certificates.
+  async publish(id,{payload,leaves,files=0}){
    const s=load(id);
    if(s.status==='complete')return view(s);
    if(['publishing','settling'].includes(s.status))throw new X402Error(409,`A previous ${s.status} step was interrupted. It needs inspection before retrying.`);
    needPaid(s);
    try{parseJobInput(JSON.stringify({service:'chainbridge',version:1,task:'anchor',payload,leaves}));}catch(e){throw new X402Error(400,e.message);}
    const quoted=s.quote.measurements.kind==='documents'?s.quote.measurements.documents:s.quote.measurements.records;
-   if(leaves.length>quoted)throw new X402Error(400,`The quote covered ${quoted} records; this fingerprint has ${leaves.length}. Request a new quote.`);
+   const maxFiles=s.quote.measurements.kind==='documents'?s.quote.measurements.documents:1;
+   if(!Number.isInteger(files)||files<0||files>maxFiles||files>=leaves.length)throw new X402Error(400,`At most ${maxFiles} source file(s) can be added to this fingerprint`);
+   if(leaves.length-files>quoted)throw new X402Error(400,`The quote covered ${quoted} records; this fingerprint has ${leaves.length-files}. Request a new quote.`);
    const root=await merkleRoot(leaves);
    if(root!==payload.root||!isHash(root))throw new X402Error(400,'The fingerprint does not match the record fingerprints. Nothing was published or charged.');
-   s.status='publishing';s.fingerprint={root,leafCount:leaves.length,salted:payload.salted};save(s);
-   try{s.publication=await publish({root,leafCount:leaves.length,salted:payload.salted,jobRef:`x402-${s.id.slice(0,24)}`});}
+   s.status='publishing';s.fingerprint={root,leafCount:leaves.length,files,salted:payload.salted};save(s);
+   try{s.publication=await publish({root,leafCount:leaves.length,files,salted:payload.salted,jobRef:`x402-${s.id.slice(0,24)}`});}
    catch(e){s.status='failed';s.error=`Publishing failed: ${e.message}. The payment was not broadcast, so nothing was charged.`;save(s);log(s,'x402_publish_failed');throw new X402Error(502,s.error);}
    s.status='settling';save(s);log(s,'x402_published',{commitment:root,txHash:s.publication.txHash});
    try{

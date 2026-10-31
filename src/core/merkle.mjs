@@ -10,9 +10,15 @@
 // A single leaf's root is the leaf hash. An empty tree has no root and is rejected.
 //
 // Proof format: {leafIndex, leafCount, siblings:[{side:'left'|'right', hash}]}, ordered leaf to root.
+//
+// File leaves (added after the record leaves) commit to one source file's SHA-256 on its own, so that file can
+// be checked by anyone holding it, without revealing any record:
+// fileLeaf = SHA-256( 0x00 || "chainbridge/v1/file" || 0x00 || salt || 0x00 || {"sha256":"<file hash>"} )
+// The salt is always set, so the other files' leaves (seen as proof siblings) cannot be matched by guessing files.
 
 export const HASH_ID='sha-256';
 export const LEAF_DOMAIN='chainbridge/v1/leaf';
+export const FILE_DOMAIN='chainbridge/v1/file';
 const enc=new TextEncoder();
 const HEX=/^[0-9a-f]{64}$/;
 
@@ -35,9 +41,15 @@ export async function sha256Hex(data){
 
 export function randomSalt(){return toHex(globalThis.crypto.getRandomValues(new Uint8Array(16)));}
 
-export async function leafHash(canonical,salt=''){
+async function domainLeaf(domain,canonical,salt){
  if(salt&&!/^[0-9a-f]{32}$/.test(salt))throw new Error('Salt must be 32 lowercase hex characters');
- return sha256Hex(concat([Uint8Array.of(0),enc.encode(LEAF_DOMAIN),Uint8Array.of(0),enc.encode(salt),Uint8Array.of(0),enc.encode(canonical)]));
+ return sha256Hex(concat([Uint8Array.of(0),enc.encode(domain),Uint8Array.of(0),enc.encode(salt),Uint8Array.of(0),enc.encode(canonical)]));
+}
+export const leafHash=(canonical,salt='')=>domainLeaf(LEAF_DOMAIN,canonical,salt);
+export async function fileLeafHash(fileSha256,salt){
+ if(!isHash(fileSha256))throw new Error('File hash must be a 64-character lowercase hex SHA-256');
+ if(!salt)throw new Error('A file leaf needs a salt');
+ return domainLeaf(FILE_DOMAIN,`{"sha256":"${fileSha256}"}`,salt);
 }
 export async function nodeHash(left,right){
  return sha256Hex(concat([Uint8Array.of(1),fromHex(left),fromHex(right)]));

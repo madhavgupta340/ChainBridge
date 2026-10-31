@@ -18,8 +18,9 @@ import {checkRecipe,applyRecipe,recipeRecord,describeStep} from '/core/recipe.mj
 import {buildAiSample,suggestRecipeLocally,countTidyIssues} from '/core/organize.mjs';
 import {measure,measureDocuments,ada,PRICING} from '/core/pricing.mjs';
 import {describeDocument,sha256Hex,recordsFromExtractions,DOC_LIMITS} from '/core/documents.mjs';
+import {fileProof} from '/core/certificate.mjs';
 
-const S={config:null,x402:null,mode:'table',docs:[],extract:null,extractConsent:false,data:null,original:null,schema:[],reviewSchema:null,selected:new Set(),plan:null,validation:null,
+const S={config:null,x402:null,mode:'table',docs:[],source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],reviewSchema:null,selected:new Set(),plan:null,validation:null,
  commitment:null,salts:{},verify:null,organize:null,session:null,paying:null,busy:false,view:0,page:0,open:new Set()};
 const $=id=>document.getElementById(id);
 const PAGE=20,PREVIEW_ROWS=5,PREVIEW_COLS=5;
@@ -95,7 +96,7 @@ function renderStatus(){
  const item=(label,value,cls='')=>h('div',{class:`status-item ${cls}`},h('span',{},label),h('strong',{},value));
  mount($('status'),
   item('Your original data','Stays on this device'),
-  S.commitment?item('Fingerprint',`Created (${S.commitment.stats.committed} records)`,'ok'):item('Fingerprint','Not created yet'),
+  S.commitment?item('Fingerprint',`Created (${S.commitment.stats.committed} record${S.commitment.stats.committed===1?'':'s'})`,'ok'):item('Fingerprint','Not created yet'),
   pub?item('Published to Cardano',pub.status==='confirmed'?`Yes, block ${pub.blockHeight}`:'Sent, awaiting confirmation',pub.status==='confirmed'?'ok':'info'):item('Published to Cardano','Nothing yet'),
   item('Payment',pay[0],pay[1]));
 }
@@ -119,11 +120,12 @@ function render(){
 }
 
 // ---------- 1. upload ----------
-async function loadText(name,text,byteLength){
+// `sha256` is the hash of the file's exact bytes: it becomes the file leaf a recipient can check later.
+async function loadText(name,text,byteLength,sha256){
  try{
   const data=ingest({name,text,byteLength});
   if(S.session&&!complete()&&S.session.status!=='quoted')toast('Your earlier signed payment was not used, so it will not be charged.');
-  Object.assign(S,{mode:'table',docs:[],extract:null,extractConsent:false,original:data,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});useData(data);changed();
+  Object.assign(S,{mode:'table',docs:[],source:sha256?{name,sha256}:null,shares:null,extract:null,extractConsent:false,original:data,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});useData(data);changed();
   toast(`Loaded ${data.records.length} records`,'ok');
  }catch(e){S.data=null;S.plan=null;S.loadError=e.message;changed();}
 }
@@ -134,14 +136,15 @@ async function onFiles(list){
  if(files.length===1&&isTable(files[0].name)){
   const file=files[0];
   if(file.size>L.maxBytes){S.loadError=`This file is ${(file.size/1048576).toFixed(1)} MB. The limit is ${L.maxBytes/1048576} MB.`;return render();}
-  return loadText(file.name,await file.text(),file.size);
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  return loadText(file.name,new TextDecoder().decode(bytes),file.size,await sha256Hex(bytes));
  }
  if(files.some(f=>isTable(f.name))){S.loadError='Load one spreadsheet, or one or more documents (PDFs, photos, screenshots), not both at once.';return render();}
  loadDocuments(files);
 }
 async function loadSample(name){
  try{const res=await fetch(`/samples/${name}`);if(!res.ok)throw new Error();
-  if(isTable(name))loadText(name,await res.text());else loadDocuments([new File([await res.blob()],name)]);}
+  if(isTable(name)){const bytes=new Uint8Array(await res.arrayBuffer());loadText(name,new TextDecoder().decode(bytes),bytes.length,await sha256Hex(bytes));}else loadDocuments([new File([await res.blob()],name)]);}
  catch{S.loadError='Could not load the sample file.';render();}
 }
 const b64=bytes=>{let t='';for(let i=0;i<bytes.length;i+=32768)t+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(t);};
@@ -166,7 +169,7 @@ async function loadDocuments(files){
   }
   if(total>DOC_LIMITS.maxTotalBytes)throw new Error(`The documents are ${(total/1048576).toFixed(1)} MB together. The limit is ${DOC_LIMITS.maxTotalBytes/1048576} MB.`);
   if(S.session&&!complete()&&S.session.status!=='quoted')toast('Your earlier signed payment was not used, so it will not be charged.');
-  Object.assign(S,{mode:'documents',docs,extract:null,extractConsent:false,data:null,original:null,schema:[],plan:null,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});
+  Object.assign(S,{mode:'documents',docs,source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],plan:null,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});
   changed();toast(`Loaded ${docs.length} document(s)`,'ok');
  }catch(e){S.loadError=e.message;render();}
 }
@@ -533,11 +536,13 @@ function viewChoose(){
 }
 
 // ---------- 6. fingerprint & publish (paid) ----------
+// Source files get their own leaves, so each can be shared and checked on its own (see /core/certificate.mjs).
+const sourceFiles=()=>S.mode==='documents'?S.docs.map(d=>({name:d.name,sha256:d.sha256})):S.source?[S.source]:[];
 async function createProof(){
  S.busy=true;render();
  try{
   S.commitment=await buildCommitment({records:selectedRecords(),plan:S.plan,salts:Object.fromEntries(Object.entries(S.salts).filter(([,v])=>v)),
-   recipe:S.organize?.applied?recipeRecord(S.organize.applied):null});
+   recipe:S.organize?.applied?recipeRecord(S.organize.applied):null,files:sourceFiles()});
   for(const e of S.commitment.entries)if(e.salt)S.salts[e.sourceRow]=e.salt;
   S.verify=null;
  }catch(e){toast(e.message,'error');}
@@ -550,7 +555,7 @@ async function publishAndFinish(){
  fx.pace(14000);
  try{
   const c=S.commitment;
-  S.session=await api(`/api/x402/session/${S.session.id}/publish`,{payload:c.payload,leaves:c.entries.map(e=>e.leafHash)});
+  S.session=await api(`/api/x402/session/${S.session.id}/publish`,{payload:c.payload,leaves:c.leaves,files:c.files.length});
   S.busy=false;refreshActivity();render();
   const s=S.session;
   if(s.status==='complete'){
@@ -585,7 +590,8 @@ function viewPublish(){
   c&&h('div',{class:'success'},
    h('h3',{},'✓ Fingerprint created on this device'),
    h('code',{class:'fingerprint'},c.root),
-   h('p',{class:'small'},`Seals ${c.stats.committed} record${c.stats.committed===1?'':'s'}`+(c.stats.duplicates?` (${c.stats.duplicates} duplicate${c.stats.duplicates>1?'s':''} ${c.stats.dropped?'removed':'kept'})`:'')+'.'),
+   h('p',{class:'small'},`Seals ${c.stats.committed} record${c.stats.committed===1?'':'s'}`+(c.stats.duplicates?` (${c.stats.duplicates} duplicate${c.stats.duplicates>1?'s':''} ${c.stats.dropped?'removed':'kept'})`:'')
+    +(c.stats.files===1?', plus the original file, so anyone you share it with can check it':c.stats.files?`, plus the ${c.stats.files} original files, so anyone you share one with can check it`:'')+'.'),
    !complete()&&h('div',{class:'center-action'},
     h('button',{class:'btn pay',type:'button',disabled:S.busy||!paid(),onclick:publishAndFinish},h('span',{class:'pay-label'},S.busy?'Publishing on Cardano…':'Publish on Cardano and pay'),h('span',{class:'pay-amount'},`${ada(s.quote.totalLovelace)} tADA`)),
     h('p',{class:'hint'},'Takes about a minute: the agent publishes your fingerprint, waits for Cardano to confirm it, then your signed payment is sent.')),
@@ -597,6 +603,7 @@ function viewPublish(){
    ['"One fingerprint"','The Merkle root of the record fingerprints (SHA-256, binary tree; an odd node is carried up unchanged)'],
    ['Record fingerprint',`SHA-256(0x00 ‖ "${LEAF_DOMAIN}" ‖ 0x00 ‖ salt ‖ 0x00 ‖ formatted record); combining two: SHA-256(0x01 ‖ left ‖ right)`],
    ['How records are formatted',`${CANON_ID}: chosen columns only, keys sorted, Unicode NFC, JSON escaping, values exactly as in the data`],
+   ['Source file fingerprint','SHA-256(0x00 ‖ "chainbridge/v1/file" ‖ 0x00 ‖ salt ‖ 0x00 ‖ {"sha256":"<file hash>"}), one per original file, after the records. Lets a recipient check one file without seeing any record.'],
    ['On-chain message','Cardano transaction metadata, label 674 (CIP-20)'],
    c&&['Exact public payload',h('pre',{class:'code'},JSON.stringify(c.payload,null,2))]])),
   actions({back:4,next:complete()?6:undefined,nextLabel:'Get your package →'}),
@@ -641,21 +648,61 @@ function certificate(){
   publication:pub?{transaction:pub.txHash,explorer:pub.explorer,block:pub.blockHeight,status:pub.status,metadataLabel:pub.label,message:pub.metadata,publisher:pub.publisher}:null,
   payment:{protocol:'x402 (exact scheme, direct payment)',network:'cardano:preprod',amount:`${ada(s.quote.totalLovelace)} tADA`,
    transaction:s.settlement?.transaction??null,explorer:s.settlement?.transaction?EXPLORER+s.settlement.transaction:null,payer:s.payer,status:s.status},
-  sources:S.mode==='documents'?S.extract.docs.map(d=>({file:d.name,sha256:d.sha256,pages:d.pages})):[{file:S.original.name}],
+  sources:S.mode==='documents'?S.extract.docs.map(d=>({file:d.name,sha256:d.sha256,pages:d.pages})):[{file:S.original.name,...(S.source?{sha256:S.source.sha256}:{})}],
+  shareableFiles:(Array.isArray(S.shares)?S.shares:[]).filter(x=>x.certificate).map(x=>({file:x.file.name,sha256:x.file.sha256,certificateId:x.certificate.id,verifyLink:x.link.url,linkKind:x.link.kind})),
   quote:s.quote,
-  howToVerify:'Open ChainBridge with the original file and the proof file, choose a record and check it. A match means the record is unchanged since it was sealed.'};
+  howToVerify:'To check one original file: open its verification link (or the verify page with its file certificate) and add the file. No proof file is needed. To check one record: open ChainBridge with the data and the private proof file. A match means it is unchanged since it was sealed, not that it is true.'};
 }
 function downloadPackage(){
  const c=S.commitment;
  const files=[
-  {name:'README.txt',text:`ChainBridge package\n\n${S.mode==='documents'?'extracted-data.csv  The facts you confirmed, one row per document, with each file\'s SHA-256.':`cleaned-data.csv   Your data after the approved tidy-up (all ${S.data.records.length} records).`}\nreport.md          What the AI found, what was changed, privacy labels.\ncertificate.json   Your fingerprint and the Cardano transaction links (publication and payment). Share this.\nproof-file.json    PRIVATE. Needed with your data to check records later. Contains the extra secret values. Do not share.\n\nThe fingerprint proves the data has not changed since it was sealed, not that it was correct.\n`},
+  {name:'README.txt',text:`ChainBridge package\n\n${S.mode==='documents'?'extracted-data.csv  The facts you confirmed, one row per document, with each file\'s SHA-256.':`cleaned-data.csv   Your data after the approved tidy-up (all ${S.data.records.length} records).`}\nreport.md          What the AI found, what was changed, privacy labels.\ncertificate.json   Your fingerprint and the Cardano transaction links (publication and payment). Share this.\nproof-file.json    PRIVATE. Needed with your data to check records later. Contains the extra secret values. Do not share.\nfile-certificates/ One certificate per original file. Safe to share: lets the holder of that file check it on the verify page, without the proof file.\n\nThe fingerprint proves the data has not changed since it was sealed, not that it was correct.\n`},
   {name:S.mode==='documents'?'extracted-data.csv':'cleaned-data.csv',text:toCsv(S.data.fields,S.data.records)},
   {name:'report.md',text:reportMarkdown()},
   {name:'certificate.json',text:JSON.stringify(certificate(),null,2)},
-  {name:'proof-file.json',text:JSON.stringify(c.bundle,null,2)}];
+  {name:'proof-file.json',text:JSON.stringify(c.bundle,null,2)},
+  ...(Array.isArray(S.shares)?S.shares:[]).filter(x=>x.certificate).map(x=>({name:`file-certificates/${x.certificate.id.slice(0,8)}-${x.file.name.replace(/[^A-Za-z0-9._-]+/g,'_')}.json`,text:JSON.stringify(x.certificate,null,2)}))];
  const url=URL.createObjectURL(zip(files));
  const a=h('a',{href:url,download:`chainbridge-package-${c.root.slice(0,8)}.zip`});document.body.append(a);a.click();a.remove();
  setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+// ---------- shareable verification ----------
+// One signed certificate per original file: its hash plus the proof path to the published fingerprint, nothing else.
+async function createShares(){
+ const c=S.commitment;
+ S.shares=c.files.map((f,i)=>({file:{name:f.name,sha256:f.sha256},status:'creating',index:i}));render();
+ for(const x of S.shares){
+  try{const r=await api(`/api/x402/session/${S.session.id}/share`,fileProof(c,x.index));Object.assign(x,{status:'ready',certificate:r.certificate,link:r.link});}
+  catch(e){Object.assign(x,{status:'error',error:e.message});}
+  render();
+ }
+}
+function shareCard(x){
+ if(x.status==='creating')return h('li',{class:'share-card'},h('div',{},h('strong',{},x.file.name),h('p',{class:'muted'},'Creating the certificate…')));
+ if(x.status==='error')return h('li',{class:'share-card'},h('div',{},h('strong',{},x.file.name),note('error',x.error),h('button',{class:'btn small',type:'button',onclick:createShares},'Try again')));
+ const local=x.link.kind!=='public',id=x.certificate.id;
+ return h('li',{class:`share-card ${local?'local':''}`},
+  h('figure',{class:'qr'},h('img',{src:`/api/certificates/${id}/qr.svg`,alt:`QR code for the verification link of ${x.file.name}`,width:150,height:150}),
+   h('figcaption',{class:'mono-key'},local?'Local demo QR':'Scan to verify')),
+  h('div',{class:'share-body'},
+   h('strong',{},x.file.name),
+   h('code',{class:'share-url break'},x.link.url),
+   local?note('warn',h('strong',{},'Local demo link. '),'It only opens on a computer running this ChainBridge app, so other people can\'t use it yet. To share it, run ChainBridge at a public address and set PUBLIC_BASE_URL. Until then, send the certificate file: it opens on any ChainBridge verify page.')
+    :h('p',{class:'small'},'Anyone with this link can check their copy of the file.'),
+   h('div',{class:'row'},h('a',{class:'btn small',href:`/verify/${id}`,target:'_blank',rel:'noopener'},'Open the check page ↗'),copyButton(x.link.url,'Copy link'),
+    h('button',{class:'btn small ghost',type:'button',onclick:()=>download(`chainbridge-file-certificate-${id.slice(0,8)}.json`,JSON.stringify(x.certificate,null,2))},'Download certificate'))));
+}
+function viewShare(){
+ const c=S.commitment;
+ if(!c.files?.length)return note('info','This fingerprint was created without the original file, so it has no shareable file check. Records can still be checked with the proof file.');
+ if(!S.shares){S.shares=[];setTimeout(createShares);}
+ return [h('h3',{},'Share a check'),
+  h('p',{},'Send someone a link or QR code with a document. They add their copy of the file and see whether it is the exact version you sealed. They don\'t need your proof file.'),
+  h('ul',{class:'share-list'},(S.shares??[]).map(shareCard)),
+  more('share-what','What a link reveals',h('ul',{},
+   h('li',{},'The file\'s name and its fingerprint (SHA-256). Anyone holding the file can compute that fingerprint anyway.'),
+   h('li',{},'A short list of other fingerprints that connect it to the published one. They reveal nothing about your other records or files.'),
+   h('li',{},'The Cardano transaction and the demo issuer\'s signature. No extracted facts, no other data, no proof file.')))];
 }
 function viewPackage(){
  const s=S.session,pub=s.publication;
@@ -672,6 +719,7 @@ function viewPackage(){
   h('div',{class:'center-action'},h('button',{class:'btn primary big',type:'button',onclick:downloadPackage},'Download package (.zip)'),
    h('div',{class:'row'},h('button',{class:'btn small',type:'button',onclick:()=>download(`chainbridge-certificate-${S.commitment.root.slice(0,8)}.json`,JSON.stringify(certificate(),null,2))},'Certificate only'),
     h('button',{class:'btn small',type:'button',onclick:()=>go(VERIFY)},'Try verifying a record →'))),
+  viewShare(),
   actions({back:5}),
  ];
 }

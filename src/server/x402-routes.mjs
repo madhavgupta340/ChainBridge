@@ -28,7 +28,7 @@ async function balance(address,key){
  const j=await r.json();return Number(j.amount?.find(a=>a.unit==='lovelace')?.quantity??0)/1e6;
 }
 
-export function createX402Routes({settings,dataDir,audit,analyze,extract,publish,resourceBase}){
+export function createX402Routes({settings,dataDir,audit,analyze,extract,publish,resourceBase,shares}){
  let service;
  async function svc(){
   if(!settings.enabled)throw new X402Error(503,`x402 payments are not set up: ${settings.reason}`);
@@ -65,14 +65,20 @@ export function createX402Routes({settings,dataDir,audit,analyze,extract,publish
    if(req.method==='GET'){m=p.match(/^\/api\/x402\/session\/([0-9a-f-]{36})$/);return json(res,200,(await svc()).get(m[1])),true;}
    const data=await readBody(/\/extract$/.test(p)?36*1024*1024:64*1024);
    if(p==='/api/x402/quote')return json(res,201,(await svc()).quote(data.measurements)),true;
-   m=p.match(/^\/api\/x402\/session\/([0-9a-f-]{36})\/(build|signature|demo-pay|analyze|extract|publish)$/);
+   m=p.match(/^\/api\/x402\/session\/([0-9a-f-]{36})\/(build|signature|demo-pay|analyze|extract|publish|share)$/);
    if(!m)return json(res,404,{error:'Not found'}),true;
    const s=await svc();const [,id,action]=m;
    if(action==='build')return json(res,200,await s.buildPayment(id,{buyerAddress:addressToBech32(String(data.buyerAddress||''))})),true;
    if(action==='signature')return json(res,200,await s.signatureHeader(id,data)),true;
    if(action==='analyze')return json(res,200,await s.analyze(id,data.sample)),true;
    if(action==='extract')return json(res,200,await s.extract(id,{documents:data.documents,consent:data.consent})),true;
-   if(action==='publish')return json(res,200,await s.publish(id,{payload:data.payload,leaves:data.leaves})),true;
+   if(action==='publish')return json(res,200,await s.publish(id,{payload:data.payload,leaves:data.leaves,files:data.files??0})),true;
+   if(action==='share'){
+    // A signed certificate for one source file of this completed job (file hash + proof only, no records).
+    const r=await shares.issue(s.raw(id),{file:data.file,proof:data.proof});
+    audit?.append({event:'certificate_issued',taskId:id,kind:'x402',mode:'x402',network:'Preprod',certificateId:r.certificate.id,linkKind:r.link.kind});
+    return json(res,200,r),true;
+   }
    if(action==='demo-pay'){
     // Demo buyer wallet on this laptop (test network only), for demos without a browser wallet extension.
     if(!existsSync(settings.demoWallet))throw new X402Error(400,'No demo test wallet. Run: npm run demo-wallet');

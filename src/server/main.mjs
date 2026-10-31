@@ -19,29 +19,34 @@ import {PAYMENT_STATUS,TASK_STATES} from './states.mjs';
 import {createX402Routes,x402Settings} from './x402-routes.mjs';
 import {publishFingerprint} from './cardano-anchor.mjs';
 import {extractDocument} from './ai-extract.mjs';
+import {createShareService,ShareError} from './share.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-const STATIC={'/':'public/index.html','/app.js':'public/app.js','/ui.js':'public/ui.js','/zip.js':'public/zip.js','/wallet.js':'public/wallet.js','/payfx.js':'public/payfx.js','/styles.css':'public/styles.css'};
+const STATIC={'/':'public/index.html','/verify':'public/verify.html','/verify.js':'public/verify.js','/app.js':'public/app.js','/ui.js':'public/ui.js','/zip.js':'public/zip.js','/wallet.js':'public/wallet.js','/payfx.js':'public/payfx.js','/styles.css':'public/styles.css'};
 const TYPES={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',mjs:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',csv:'text/csv; charset=utf-8',json:'application/json; charset=utf-8',woff2:'font/woff2',pdf:'application/pdf',png:'image/png'};
 const HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY',
  'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"};
 
 function staticPath(pathname){
  if(STATIC[pathname])return STATIC[pathname];
+ if(/^\/verify\/[0-9a-f]{32}$/.test(pathname))return 'public/verify.html';
  let m=pathname.match(/^\/core\/([a-z-]+\.mjs)$/);if(m)return `src/core/${m[1]}`;
  m=pathname.match(/^\/samples\/([a-z0-9-]+\.(csv|json|pdf|png))$/);if(m)return `samples/${m[1]}`;
  m=pathname.match(/^\/fonts\/((Geist|GeistMono)-Variable\.woff2)$/);if(m)return `public/fonts/${m[1]}`;
  return null;
 }
 
-export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbridge'),journalDir=join(root,'.local'),submit,ai=aiPlan,organize=sample=>aiOrganize(sample,{settings:aiSettings()}),x402}={}){
+export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbridge'),journalDir=join(root,'.local'),submit,ai=aiPlan,organize=sample=>aiOrganize(sample,{settings:aiSettings()}),x402,shares}={}){
  const audit=createAuditLog(join(dataDir,'audit.jsonl'));
  const tasks=createTaskService({store:createTaskStore(join(dataDir,'tasks')),audit,config,
   submit:submit??createSokosumiSubmitter(config),readJournal:id=>readWorkerJournal(id,journalDir),
   // Local demo: same job with AI analysis when configured, but never publishes on Cardano.
   run:text=>runJob(text,{describeStep,analyze:aiSettings()?sample=>aiOrganize(sample,{settings:aiSettings()}):undefined})});
  const x402s=x402??x402Settings(root);
- const x402Handle=createX402Routes({settings:x402s,dataDir,audit,resourceBase:`http://127.0.0.1:${config.port}`,
+ // Shareable certificates. PUBLIC_BASE_URL is where other people can reach this app; without it links are local demo links.
+ const share=shares??createShareService({dir:join(dataDir,'certificates'),walletPath:x402s.publishingWallet,blockfrostKey:x402s.blockfrostKey,
+  publicBaseUrl:process.env.PUBLIC_BASE_URL?.trim(),port:config.port});
+ const x402Handle=createX402Routes({settings:x402s,dataDir,audit,shares:share,resourceBase:`http://127.0.0.1:${config.port}`,
   analyze:aiSettings()?sample=>aiOrganize(sample,{settings:aiSettings()}):undefined,
   extract:aiSettings()?doc=>extractDocument(doc,{settings:aiSettings()}):undefined,
   publish:args=>publishFingerprint(args,{walletPath:x402s.publishingWallet,blockfrostKey:x402s.blockfrostKey,journalDir:join(journalDir,'anchors')})});
@@ -67,6 +72,9 @@ export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbr
     let m=url.pathname.match(/^\/api\/tasks\/([0-9a-f-]{36})$/);
     if(m){const t=tasks.refresh(m[1]);return send(res,200,publicTask(t));}
     if(url.pathname==='/api/audit')return send(res,200,audit.list());
+    m=url.pathname.match(/^\/api\/certificates\/([0-9a-f]{32})(\/qr\.svg)?$/);
+    if(m&&m[2]){res.writeHead(200,{...HEADERS,'content-type':'image/svg+xml','cache-control':'no-cache'});return res.end(share.qrSvg(m[1]));}
+    if(m)return send(res,200,share.get(m[1]));
     return send(res,404,{error:'Not found'});
    }
    if(req.method!=='POST')return send(res,405,{error:'Method not allowed'});
@@ -74,6 +82,8 @@ export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbr
    const origin=req.headers.origin;
    if(origin&&origin!==`http://${req.headers.host}`)return send(res,403,{error:'Cross-origin request refused'});
    const data=await body(req);
+   // Public check for the verify page: Cardano record and issuer signature of a certificate (no file data).
+   if(url.pathname==='/api/verify/check')return send(res,200,await share.check(data.certificate));
    if(url.pathname==='/api/plan/ai'){
     if(!config.ai)return send(res,400,{error:'No AI provider configured. The local planner is in use.'});
     if(data.consent!==true)return send(res,400,{error:'Sending the schema summary to the AI provider requires your consent'});
@@ -90,7 +100,7 @@ export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbr
    if(m){const t=m[2]==='approve'?await tasks.approve(m[1],data):tasks.cancel(m[1]);return send(res,200,publicTask(t));}
    return send(res,404,{error:'Not found'});
   }catch(e){
-   if(e instanceof TaskError)return send(res,e.status,{error:e.message});
+   if(e instanceof TaskError||e instanceof ShareError)return send(res,e.status,{error:e.message});
    console.error('Request failed:',e.message);return send(res,500,{error:'Request failed. Check task status before retrying.'});
   }
  });

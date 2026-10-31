@@ -392,3 +392,27 @@ td.changed-cell{color:var(--signal);font-weight:500}
 }
 .btn.pay{align-items:stretch}.btn.pay .pay-label,.btn.pay .pay-amount{align-self:stretch}
 .payfx-steps li.past{color:var(--ink-2)}.payfx-steps li.past .payfx-dot{background:var(--ink-3);border-color:var(--ink-3)}
+
+/* ---------- shareable verification ---------- */
+.upload.single{grid-template-columns:1fr}
+.upload.single .drop{border-right:0}
+.share-list,.checks{list-style:none;padding:0;margin:1.2rem 0;border-top:1px solid var(--line-2)}
+.share-card{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1.4rem;padding:1.3rem 0;border-bottom:1px solid var(--line)}
+.share-card .qr{margin:0;display:grid;gap:.4rem;justify-items:center}
+.share-card .qr img{width:150px;height:150px;display:block;background:#fff;border:1px solid var(--line-2)}
+.share-card.local .qr img{opacity:.55}
+.share-body{display:grid;gap:.6rem;align-content:start;min-width:0}
+.share-body .note{margin:0}
+.share-url{font-family:var(--mono);font-size:.8rem;padding:.5rem .6rem;background:var(--paper-2);border:1px solid var(--line)}
+.break{word-break:break-all;overflow-wrap:anywhere}
+.check-row{padding:1rem 0 1rem 1rem;border-bottom:1px solid var(--line);border-left:3px solid var(--line-2)}
+.check-row.ok{border-left-color:var(--ok)}.check-row.bad{border-left-color:var(--bad)}
+.check-row p{margin:.3rem 0 0}
+.check-head{display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.check-head strong{font-size:1.1rem;font-weight:500}
+.pill{font-family:var(--mono);font-size:.66rem;letter-spacing:.07em;text-transform:uppercase;padding:.25rem .55rem;border:1px solid currentColor;color:var(--ink-3);white-space:nowrap}
+.pill.ok{color:var(--ok);background:var(--ok-bg)}.pill.bad{color:var(--bad);background:var(--bad-bg)}
+.verdict.warn::before{background:var(--warn)}.verdict.warn strong{color:var(--warn)}
+.verify-page h1{margin-top:2.5rem}
+.verify-page h4{margin:1.4rem 0 0;font-family:var(--mono);font-size:.7rem;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);font-weight:400}
+@media (max-width:640px){.share-card{grid-template-columns:1fr}.share-card .qr{justify-items:start}}

@@ -26,6 +26,16 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 
 ### Evidence log (Cardano Preprod, 2026-10-31; test tokens, no real value)
 
+**Shareable verification: PDF inspection report with a file certificate** (same sample, quoted 3.25 tADA, 29 facts sealed as 1 record plus 1 file leaf):
+
+- Fingerprint `e903647cfa7f5a99dca7919e76cda832f11832895258fb1bc56c577770563269` (2 leaves)
+- **Published on Cardano** (block 5356536): [`72fef65b…14861d`](https://preprod.cardanoscan.io/transaction/72fef65b59940484c8c9a3e72bdd3a2d450c4ec9ccd077e719727d90af14861d). Message: `records: 1`, `files: 1`
+- **x402 payment settled after publication**, 3.25 tADA: [`71ce80b1…fa0400`](https://preprod.cardanoscan.io/transaction/71ce80b13b11fcece07e0940b8d73218b1ce7e49615d9eda4e663b409bfa0400)
+- **Signed file certificate** `3254f4bd…` with a local demo link. On the verify page:
+  - **Original PDF:** file match, Cardano record and issuer signature all Valid.
+  - **Copy with one bit changed:** "✗ This file is different".
+  - **Contents:** the certificate holds no extracted facts.
+
 **Documents: PDF inspection report** (samples/car-inspection-report.pdf, 2 pages, quoted 3.25 tADA, Meta AI extraction of 30 facts, 28 sealed):
 
 - **Published on Cardano** (block 5355379): [`ae4e8cc3…cea743`](https://preprod.cardanoscan.io/transaction/ae4e8cc3c4096a7048fd3d954dbd3e64e92ad256d8c8875d9297614123cea743)
@@ -191,6 +201,37 @@ Follow the official [TUM setup guide](https://www.masumi.network/tum-hackathon).
 
 Never put seed phrases, private keys or API keys in the repo, the browser, prompts, or screenshots. ChainBridge never asks for them.
 
+## Shareable verification (for people you send a document to)
+
+When a job is published, the package step creates **one certificate per original file**: the uploaded PDFs and images, or the original CSV/JSON. Each certificate has a verification link and a QR code. The recipient opens the link, adds their copy of the file and sees three separate checks:
+
+| Check | Question | Where it runs |
+|---|---|---|
+| File match | Does this file match the fingerprint in the certificate? | In the recipient's browser. The file is hashed locally and never uploaded. |
+| Cardano record | Does the referenced transaction contain this fingerprint (label 674) with the right count? | On the ChainBridge server, via Blockfrost. The page also links the transaction so anyone can compare it themselves. |
+| Issuer signature | Is the certificate signed by the key named as its issuer, and did that key publish the transaction? | On the ChainBridge server (Ed25519, CSL). |
+
+Each check shows **Valid**, **Not valid** or **Not checked**, for example when Cardano can't be reached or the certificate is unsigned. "Not checked" is never shown as valid.
+
+**How it works without the private proof file.** Every original file gets its own leaf after the record leaves: `SHA-256(0x00 ‖ "chainbridge/v1/file" ‖ 0x00 ‖ salt ‖ 0x00 ‖ {"sha256":"<file hash>"})`, salted per file. The certificate (`src/core/certificate.mjs`) contains:
+
+- the file's name and SHA-256;
+- that one salt;
+- the sibling hashes up to the root;
+- the root and the transaction;
+- the demo issuer's public key, address and signature.
+
+It contains no record values, no extracted facts, no other files' hashes and no other salts. Sibling hashes are salted leaves or inner nodes, so they reveal nothing. The on-chain message adds a `files: F` line, and `records: N` stays the record count. Fingerprints made before this change have no file leaves, so they can't get file certificates.
+
+**Issuer.** Certificates are signed with the agent's publishing wallet key, the key that signed the Cardano publication, and labelled *ChainBridge demo issuer (Cardano Preprod test network)*. A valid signature proves control of that key. It does **not** prove which person or organisation owns it. There is no issuer registry.
+
+**Links and QR codes.** The QR code holds only the link: `<base>/verify/<certificate id>`. The base comes from `PUBLIC_BASE_URL`.
+- **When it is unset, or points to localhost:** links are labelled **local demo links**. They only open on a computer running this app, and the QR code is shown dimmed with that label.
+- **To share with other people:** run ChainBridge at an address they can reach and set `PUBLIC_BASE_URL`. The server still binds to 127.0.0.1, so exposing it is a deployment step, not done here.
+- **Without a public deployment:** send the certificate `.json` file instead. The ZIP has them under `file-certificates/`, and the recipient opens it on any ChainBridge `/verify` page.
+
+Certificates are stored in `.local/chainbridge/certificates/` (file hash and proof only). They are created only for completed, published jobs, and only if the file's proof leads to the published root.
+
 ## Cryptography
 
 - **Canonicalization (`CB-CANON-1`):** only selected fields are used, and a missing field becomes `null`. Keys and strings are NFC-normalized and keys are sorted by UTF-16 code units. JSON escaping is used with no whitespace. Numbers use the shortest ECMAScript form (`-0`→`0`, NaN/∞ rejected). Values are **not trimmed or coerced**: CSV values stay strings exactly as in the file, and JSON keeps its types. So `"7"` (CSV) and `7` (JSON) hash differently by design.
@@ -211,7 +252,8 @@ Never put seed phrases, private keys or API keys in the repo, the browser, promp
 - The local server binds to 127.0.0.1, refuses cross-origin and non-JSON writes, and serves a fixed file allow-list.
 - The audit log (`.local/chainbridge/audit.jsonl`) stores an allow-list of fields only: time, task, mode, network, commitment, strategy, count, price, states, and tx references. It never stores records or job text.
 - No automatic retries of payment or submission. Uncertain outcomes become `needs_inspection`, and identical active jobs are de-duplicated.
-- The paid flow anchors the **hash of the certificate** through Masumi's escrow. A standalone Cardano metadata transaction carrying the root (e.g. a CIP-20/label-674 adapter with a CIP-30 wallet) is a planned extension and is not implemented.
+- The x402 flow publishes the root itself as a label-674 metadata transaction from the agent's publishing wallet. The Sokosumi escrow path anchors the hash of the certificate.
+- Shareable verification relies on a running ChainBridge server for the Cardano and signature checks and for links. The file match runs in the recipient's browser. Anyone can confirm the Cardano part by hand from the transaction link.
 
 ## Architecture
 
@@ -219,12 +261,12 @@ Never put seed phrases, private keys or API keys in the repo, the browser, promp
 src/core/      ingest.mjs (CSV/JSON) · schema.mjs (types, sensitivity) · recipe.mjs (tidy-up steps) · organize.mjs (AI sample, local rules)
                pricing.mjs (quote model)
                plan.mjs (planner + validation)
-               canonical.mjs · merkle.mjs · commitment.mjs · job.mjs (paid service job) · limits.mjs
+               canonical.mjs · merkle.mjs · commitment.mjs · certificate.mjs (shareable file certificates) · job.mjs (paid service job) · limits.mjs
 src/server/    main.mjs (HTTP + static) · tasks.mjs (quote/approval/execution) · states.mjs
-               x402-pay.mjs · x402-service.mjs · x402-routes.mjs (x402 payments) · cardano-anchor.mjs (publication)
+               x402-pay.mjs · x402-service.mjs · x402-routes.mjs (x402 payments) · cardano-anchor.mjs (publication) · share.mjs (certificates, link, QR, checks)
                config.mjs (mode, price) · sokosumi.mjs (CLI + worker journal) · ai-config.mjs (Meta) · ai-organizer.mjs
                ai-planner.mjs · audit.mjs · store.mjs
-public/        index.html · app.js · ui.js · wallet.js (CIP-30) · zip.js (package) · styles.css
+public/        index.html · app.js · verify.html · verify.js (recipient check page) · ui.js · wallet.js (CIP-30) · zip.js (package) · styles.css
 chainbridge-answer.mjs   plugs the ChainBridge job into the template worker and MIP-003 API
 worker.mjs, paid-task.mjs, agent-api.mjs, payment-registration.mjs, settlement.mjs …   Masumi template (lightly adapted)
 test/          ChainBridge tests     *.test.mjs   template tests
@@ -234,7 +276,15 @@ Extension points: new connectors (databases, APIs) only need to produce `{source
 
 ## Tests
 
-`npm test` runs 96 tests: the template's 29 plus ChainBridge's 67. They cover document handling (type detection, page counting, consent, quoted limits, no document data stored, sanitized AI output), They cover x402 sessions (no charge before publication, single settlement, oversized or wrong fingerprints refused, invalid payments rejected), pricing, the package ZIP, Cardano publication (idempotent, no blind retries), the AI organizer the AI organizer (step whitelist, masking, consent, deterministic re-application), parsing (malformed input, limits), canonicalization and hash vectors, sensitivity heuristics and overrides, Merkle proofs, the odd-node rule, empty and duplicate data, modified-record verification, plan validation, AI output sanitization, job input validation, approval gates, duplicate prevention, uncertain outcomes, state transitions, audit privacy, and the HTTP API. These are local tests. A live Sokosumi/Masumi run is still required for track evidence.
+`npm test` runs 104 tests: the template's 29 plus ChainBridge's 75. They cover shareable verification:
+
+- file leaves and their privacy;
+- tampered certificates and proofs;
+- the Cardano and issuer checks, including outages reported as "not checked";
+- local versus public links;
+- the verify routes.
+
+They also cover document handling (type detection, page counting, consent, quoted limits, no document data stored, sanitized AI output), They cover x402 sessions (no charge before publication, single settlement, oversized or wrong fingerprints refused, invalid payments rejected), pricing, the package ZIP, Cardano publication (idempotent, no blind retries), the AI organizer the AI organizer (step whitelist, masking, consent, deterministic re-application), parsing (malformed input, limits), canonicalization and hash vectors, sensitivity heuristics and overrides, Merkle proofs, the odd-node rule, empty and duplicate data, modified-record verification, plan validation, AI output sanitization, job input validation, approval gates, duplicate prevention, uncertain outcomes, state transitions, audit privacy, and the HTTP API. These are local tests. A live Sokosumi/Masumi run is still required for track evidence.
 
 ## Demo video outline (≤ 2.5 min)
 

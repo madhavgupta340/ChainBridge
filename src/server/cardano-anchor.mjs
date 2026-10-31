@@ -3,7 +3,8 @@
 // count and job reference are published: never record values, column names or salts.
 //
 // Metadata uses label 674 (CIP-20 transaction message), as a list of strings of at most 64 bytes:
-//   {"674":{"msg":["ChainBridge data fingerprint v1","sha-256 merkle root:","<64 hex>","records: N","salted: true","job: <id>"]}}
+//   {"674":{"msg":["ChainBridge data fingerprint v1","sha-256 merkle root:","<64 hex>","records: N","files: F","salted: true","job: <id>"]}}
+// "files: F" (source-file leaves after the N record leaves) appears only when F > 0; the root covers N + F leaves.
 //
 // Safety: one publication per (fingerprint, job). The journal is written before submitting; an interrupted
 // submission is never retried automatically (it may already be on-chain).
@@ -19,9 +20,10 @@ export const EXPLORER='https://preprod.cardanoscan.io/transaction/';
 const harden=n=>0x80000000+n;
 const HEX64=/^[0-9a-f]{64}$/;
 
-export function anchorMetadata({root,leafCount,salted,jobRef}){
+export function anchorMetadata({root,leafCount,files=0,salted,jobRef}){
  if(!HEX64.test(root))throw new Error('Fingerprint must be a 64-character hex hash');
- return {msg:['ChainBridge data fingerprint v1','sha-256 merkle root:',root,`records: ${Number(leafCount)}`,`salted: ${Boolean(salted)}`,`job: ${String(jobRef).slice(0,58)}`]};
+ const f=Number(files)||0;
+ return {msg:['ChainBridge data fingerprint v1','sha-256 merkle root:',root,`records: ${Number(leafCount)-f}`,...(f?[`files: ${f}`]:[]),`salted: ${Boolean(salted)}`,`job: ${String(jobRef).slice(0,58)}`]};
 }
 
 // Standard Cardano wallet derivation (CIP-1852), account 0, first address, Preprod.
@@ -89,11 +91,11 @@ export function buildPublishTx({wallet,utxos,params,metadata}){
  return {txHash:fixed.transaction_hash().to_hex(),cbor:Buffer.from(fixed.to_bytes()),fee:fixed.body().fee().to_str()};
 }
 
-export async function publishFingerprint({root,leafCount,salted,jobRef,deadline},{walletPath,blockfrostKey,journalDir,fetchImpl=fetch,confirmTimeoutMs=150000,pollMs=8000}){
+export async function publishFingerprint({root,leafCount,files=0,salted,jobRef,deadline},{walletPath,blockfrostKey,journalDir,fetchImpl=fetch,confirmTimeoutMs=150000,pollMs=8000}){
  if(!blockfrostKey)throw new Error('BLOCKFROST_API_KEY_PREPROD is not set');
  const wallet=loadPublishingWallet(walletPath);
  if(!wallet)throw new Error('No publishing wallet. Run: npm run publish-wallet');
- const metadata=anchorMetadata({root,leafCount,salted,jobRef});
+ const metadata=anchorMetadata({root,leafCount,files,salted,jobRef});
  mkdirSync(journalDir,{recursive:true,mode:0o700});
  const journalFile=join(journalDir,createHash('sha256').update(`${root}:${jobRef}`).digest('hex')+'.json');
  const save=j=>writeFileSync(journalFile,JSON.stringify(j),{mode:0o600});

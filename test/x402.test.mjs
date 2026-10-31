@@ -87,6 +87,21 @@ test('x402 session: invalid payments are rejected; settlement problems are repor
   const r=await b.svc.publish(q.id,job(b.c));
   assert.equal(r.status,'settle-failed');assert.match(r.error,/could not be settled \(utxo_spent\)/);}finally{b.done();}
 });
+test('x402 session: a table fingerprint may add one source-file leaf beyond the quoted records, and it is published as such',async()=>{
+ const {svc,calls,header,done}=await setup();
+ try{
+  const d=sample('supplier-certificates.csv');
+  const c=await buildCommitment({records:d.records,plan:{version:1,fields:['certificate_id','passed'],strategy:'merkle-root',ordering:'leaf-hash',salt:'per-record',duplicates:'keep'},
+   files:[{name:'supplier-certificates.csv',sha256:'ab'.repeat(32)},{name:'extra.csv',sha256:'cd'.repeat(32)}]});
+  const q=svc.quote({records:d.records.length,columns:10,privateColumns:3,tidyIssues:0});await svc.paymentRequired(q.id);await svc.pay(q.id,header);
+  await assert.rejects(svc.publish(q.id,{payload:c.payload,leaves:c.leaves,files:2}),/At most 1 source file/);
+  await assert.rejects(svc.publish(q.id,{payload:c.payload,leaves:c.leaves,files:0}),/quote covered/,'file leaves are not free records');
+  const one=await buildCommitment({records:d.records,plan:{version:1,fields:['certificate_id','passed'],strategy:'merkle-root',ordering:'leaf-hash',salt:'per-record',duplicates:'keep'},files:[{name:'s.csv',sha256:'ab'.repeat(32)}]});
+  const r=await svc.publish(q.id,{payload:one.payload,leaves:one.leaves,files:1});
+  assert.equal(r.status,'complete');assert.deepEqual(r.fingerprint,{root:one.root,leafCount:d.records.length+1,files:1,salted:true});
+  assert.equal(r.publication.files,1);assert.equal(calls.settle,1);
+ }finally{done();}
+});
 test('Package ZIP and CSV: valid archive, quoting of commas and quotes',async()=>{
  const bytes=new Uint8Array(await zip([{name:'a.txt',text:'hi'}]).arrayBuffer());
  assert.deepEqual([...bytes.slice(0,4)],[0x50,0x4b,0x03,0x04]);
