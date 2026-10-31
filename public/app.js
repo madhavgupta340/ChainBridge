@@ -6,7 +6,7 @@ import {ingest} from '/core/ingest.mjs';
 import {analyzeSchema,applyOverride,schemaSummary,FIELD_TYPES,SENSITIVITY} from '/core/schema.mjs';
 import {recommendPlan,normalizePlan,validatePlan,countDuplicates} from '/core/plan.mjs';
 import {buildCommitment,verifyRecord} from '/core/commitment.mjs';
-import {anchorJobText,verifyJobText} from '/core/job.mjs';
+import {certifyJobText,verifyJobText} from '/core/job.mjs';
 import {CANON_ID} from '/core/canonical.mjs';
 import {LEAF_DOMAIN} from '/core/merkle.mjs';
 import {checkRecipe,applyRecipe,recipeRecord,describeStep} from '/core/recipe.mjs';
@@ -86,8 +86,12 @@ function renderHeader(){
  const mode=c.mode==='demo'?['Local demo: no payments','warn']:c.paid?['Test payments on','ok']:['Agent connected: no payments','info'];
  mount($('badges'),h('span',{class:'badge net'},'Cardano Preprod (test network)'),h('span',{class:`badge ${mode[1]}`,title:c.reason},mode[0]));
 }
+function resultJson(t){try{return JSON.parse(t.result.slice(t.result.indexOf('\n')+1));}catch{return null;}}
 function publishedText(){
  const t=S.task;
+ const pub=t?.result&&resultJson(t)?.publication;
+ if(pub?.status==='confirmed')return ['Your fingerprint, confirmed on Cardano Preprod','ok'];
+ if(pub?.status==='submitted')return ['Your fingerprint, sent to Cardano Preprod (awaiting confirmation)','info'];
  if(t&&t.mode==='sokosumi'&&t.paymentStatus!=='disabled'&&['confirmed_on_chain','completed','settled'].includes(t.state))
   return ['A fingerprint of the agent\'s answer, on Cardano Preprod','ok'];
  if(t&&t.mode==='sokosumi'&&t.state==='result_submitted')return ['Waiting for Cardano Preprod to confirm','info'];
@@ -493,17 +497,22 @@ function viewPaid(){
  return [
   ...heading('Paid task — Cardano Preprod test'),
   modeBanner(),
-  h('p',{},'The ChainBridge agent double-checks your fingerprint and returns a certificate. It only receives record fingerprints, never your records or column names.'),
+  h('p',{},'What you pay for: the ChainBridge agent analyses your data with AI, checks your fingerprint independently, and publishes the fingerprint on Cardano. You get a quality report, suggested tidy-up steps and the Cardano transaction link.'),
+  h('p',{class:'muted small'},'The agent never receives your full file: only record fingerprints and a few example rows with private columns hidden. You can see exactly what is sent below.'),
+  !t&&(()=>{const jobText=certifyJobText(c,buildAiSample(S.data,S.schema,'masked'));
+   return h('div',{class:'center-action'},
+    c.entries.length>S.config.limits.maxJobLeaves||!jobText?note('warn',`The paid task accepts up to ${S.config.limits.maxJobLeaves} records. Select fewer records in the Review step.`)
+     :h('button',{class:'btn primary big',type:'button',onclick:()=>requestTask(jobText)},'Get a price'),
+    h('p',{class:'hint'},'Shows the price and exactly what would happen. Nothing is sent or paid until you approve.'),
+    jobText&&more('paidsend','Show exactly what the agent receives',h('pre',{class:'code'},JSON.stringify(JSON.parse(jobText).sample,null,2)),h('p',{class:'small muted'},`Plus ${c.entries.length} record fingerprints and the settings.`)));})(),
   !t&&h('div',{class:'center-action'},
-   c.entries.length>S.config.limits.maxJobLeaves?note('warn',`The paid task accepts up to ${S.config.limits.maxJobLeaves} records. Select fewer records in the Review step.`)
-    :h('button',{class:'btn primary big',type:'button',onclick:()=>requestTask(anchorJobText(c))},'Get a price'),
-   h('p',{class:'hint'},'Shows the price and exactly what would happen. Nothing is sent or paid until you approve.'),
    S.verify?.result?.match&&h('button',{class:'btn small ghost',type:'button',onclick:()=>requestTask(verifyJobText({root:S.verify.result.root,leaf:S.verify.result.computedLeaf,proof:S.verify.result.proof}))},'Or: ask the agent to check the record you just verified')),
   t&&taskView(t),
   actions({back:5}),
  ];
 }
 function plainWhat(t){
+ if(t.kind==='certify')return t.mode==='demo'?'Local demo of the full service: AI analysis of the masked sample and an independent fingerprint check. The demo does not publish on Cardano.':'The agent analyses the masked sample with AI, checks your fingerprint independently, and publishes the fingerprint on Cardano Preprod in its own transaction. Only if the fingerprint checks out.';
  const paid=t.quote.charged;
  const what=t.kind==='anchor'?'The agent recalculates your fingerprint from the record fingerprints, confirms it matches, and returns a certificate.':'The agent checks that one record\'s fingerprint belongs to your proof.';
  return paid?`${what} A fingerprint of the agent's answer is recorded on Cardano Preprod as part of the payment.`:what;
@@ -523,11 +532,12 @@ function taskView(t){
   t.uncertain&&note('warn','A step is in progress or was interrupted. ChainBridge never repeats payment steps automatically.'),
   facts([
    ['What happens',plainWhat(t)],
-   ['What is sent',t.kind==='anchor'?`${t.summary.recordCount} record fingerprints and the settings. No record values.`:'One record fingerprint, its proof steps, and the overall fingerprint. No record values.'],
+   ['What is sent',t.kind==='certify'?t.quote.dataSent:t.kind==='anchor'?`${t.summary.recordCount} record fingerprints and the settings. No record values.`:'One record fingerprint, its proof steps, and the overall fingerprint. No record values.'],
    ['Service price',h('span',{class:'price'},q.servicePrice)],
    q.charged&&['About the price',q.priceNote],
    ['Cardano network fee','Separate from the service price. ChainBridge does not calculate it.'],
    ['AI cost',q.aiCost],
+   q.publishingFee&&['Publishing on Cardano',q.publishingFee],
    ['Who does the work',q.provider],
    ['Network','Cardano Preprod (test network; test tokens have no real value)'],
    !gate&&['Payment',PAY_TEXT[t.paymentStatus]??'Unknown'],
@@ -539,7 +549,8 @@ function taskView(t){
    h('div',{class:'row'},approve,h('button',{class:'btn ghost',type:'button',onclick:async()=>{S.task=await api(`/api/tasks/${t.id}/cancel`,{});render();refreshActivity();}},'Decline'))),
   t.state==='needs_inspection'&&note('error','We can\'t tell whether this went through. Check the task in Sokosumi before trying again, so you aren\'t charged twice.'),
   t.mode==='demo'&&t.state==='completed'&&note('info','Local demo: no payment, no transaction, nothing published. Connect a Sokosumi agent to run it for real.'),
-  result&&h('div',{class:`verdict ${result.ok?'ok':'bad'}`},h('strong',{},result.title),h('p',{},result.text)),
+  result&&h('div',{class:`verdict ${result.ok?'ok':'bad'}`},h('strong',{},result.title),h('p',{},result.text),result.link&&h('p',{},h('a',{href:result.link,target:'_blank',rel:'noopener'},'View the transaction on cardanoscan ↗'))),
+  result?.analysis&&analysisView(result.analysis),
   t.result&&more('answer','Show the agent\'s full answer',h('pre',{class:'code'},t.result)),
   tech(facts([
    ['Task ID',t.id],t.sokosumiTaskId&&['Sokosumi task ID',t.sokosumiTaskId],
@@ -559,12 +570,25 @@ function parseResult(text,demo){
  const who=demo?'The local demo check':'The agent';
  try{
   const r=JSON.parse(text.slice(text.indexOf('\n')+1));
+  if(r.task==='certify'){
+   const p=r.publication||{};
+   if(r.status==='root-mismatch')return {ok:false,title:'✗ The fingerprint did not match. Nothing was published',text:'Create the proof again.',analysis:r.analysis};
+   if(p.status==='confirmed'||p.status==='submitted')return {ok:true,title:`✓ Fingerprint verified and published on Cardano Preprod${p.status==='submitted'?' (awaiting confirmation)':''}`,
+    text:`Transaction ${p.txHash}${p.blockHeight?` in block ${p.blockHeight}`:''}. Anyone can look it up and see your fingerprint and the time, but not your data.`,link:p.explorer,analysis:r.analysis};
+   return {ok:true,title:`✓ ${who} verified your fingerprint`,text:p.reason??'Not published.',analysis:r.analysis};
+  }
   if(r.status==='root-verified')return {ok:true,title:`✓ ${who} confirmed your fingerprint`,text:`It recalculated the fingerprint from ${r.leafCount} record fingerprints and got the same result.`};
   if(r.status==='root-mismatch')return {ok:false,title:'✗ The fingerprint did not match',text:'Don\'t use this fingerprint. Create the proof again.'};
   if(r.status==='valid')return {ok:true,title:`✓ ${who} confirmed this record belongs to your proof`,text:'The record fingerprint and proof lead to your fingerprint.'};
   if(r.status==='invalid')return {ok:false,title:`✗ ${who} could not confirm this record`,text:'The record fingerprint and proof do not lead to your fingerprint.'};
  }catch{}
  return null;
+}
+function analysisView(a){
+ if(a.error)return note('info',a.error);
+ return h('div',{class:'analysis'},h('h4',{},`AI data report (${a.by})`),a.summary&&h('p',{},a.summary),
+  a.issues?.length?h('ul',{},a.issues.map(i=>h('li',{},i))):null,
+  a.suggestedSteps?.length?more('aisteps',`Suggested tidy-up steps (${a.suggestedSteps.length})`,h('ul',{},a.suggestedSteps.map(st=>h('li',{},st.description,st.reason&&h('span',{class:'muted small'},` · ${st.reason}`))))):null);
 }
 
 // ---------- activity log ----------

@@ -30,6 +30,13 @@ Created from the ChainBridge app (supplier certificates sample, 12 records → M
 - Sokosumi `runtime receipt`: `settled: true`, same txHash `c95e9694…590fca`
 - Follow-up comment and agent reply: _not yet recorded_
 
+**Full paid service ("certify": AI analysis + fingerprint check + publication on Cardano)**, messy shipments sample tidied in the app, 8 records → root `a33b2f4ecdca49d833293fb00c6ef385cc602359ecfbd780684aeea7137aaaa9`:
+
+- Sokosumi Task ID: `01a18f6e-d6f2-726f-a43a-90516ba16289` (paid 1 tUSDM via Masumi escrow; completed)
+- AI analysis by Meta AI (muse-spark-1.3) on a masked sample: 5 issues found, 6 tidy-up steps suggested
+- **Fingerprint published on Cardano Preprod** by the agent's publishing wallet, block 5355170, fee 0.175401 tADA: [`5476b483…3d12da`](https://preprod.cardanoscan.io/transaction/5476b4830038e3fe0c6e850d371988eaaf5e6b96fc54680b1534df958d3d12da)
+- Read back from the chain (metadata label 674): `["ChainBridge data fingerprint v1","sha-256 merkle root:","a33b2f4e…7aaaa9","records: 8","salted: true","job: cb-693bad795f216e282f5f83ae"]`
+
 ## Quick start (demo mode, about 2 minutes)
 
 Prerequisites: Node.js 24+ and Git. No accounts are needed for demo mode.
@@ -66,6 +73,17 @@ The **Organize data** step uses an AI model to analyse a table and suggest a *re
 - **Unmasked sample:** up to 10 rows exactly as in the file. Needs a second, explicit confirmation.
 
 Masking uses the automatic privacy labels. A personal column the rules don't recognise would be sent unmasked, so check the payload preview or choose "column names only" for sensitive files.
+
+## The paid service
+
+The customer pays the ChainBridge agent (1 tUSDM on Preprod, through Masumi escrow) for the full job, called `certify` in `src/core/job.mjs`:
+
+1. **AI analysis:** the agent runs its AI provider (Meta) on a **masked sample**: column names and labels, value formats, and up to 10 rows, with columns labelled personal or confidential hidden. It returns a data-quality report and suggested tidy-up steps. Advisory only.
+2. **Fingerprint check:** it recomputes the Merkle root from the record fingerprints and compares it with the customer's.
+3. **Publication on Cardano:** only if the check passes, the agent publishes the fingerprint in its own Preprod transaction (metadata label 674), paying the fee from its dedicated publishing wallet (`npm run publish-wallet` creates it in `.local/publishing-wallet.json`; fund it from the Preprod faucet). Once per job, never retried after an uncertain submission (`src/server/cardano-anchor.mjs`).
+4. **Certificate:** the result contains the report, the check, and the transaction hash and explorer link. Masumi then records the hash of this result in the escrow and releases the payment.
+
+The full file never leaves the customer's device. The app shows exactly what the agent receives before approval.
 
 ## How the agent task flow works
 

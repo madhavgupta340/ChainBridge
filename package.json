@@ -10,13 +10,15 @@
     "start": "node --env-file-if-exists=.env start.mjs",
     "worker": "node --env-file-if-exists=.env worker.mjs",
     "api": "node --env-file-if-exists=.env --env-file-if-exists=.local/mps-runtime.env agent-api.mjs",
-    "test": "node --env-file-if-exists=.env --test *.test.mjs test/*.test.mjs"
+    "test": "node --env-file-if-exists=.env --test *.test.mjs test/*.test.mjs",
+    "publish-wallet": "node --env-file-if-exists=.env src/server/publish-wallet.mjs"
   },
   "dependencies": {
-    "eve": "0.71.0",
+    "@ai-sdk/openai-compatible": "3.0.62",
+    "@emurgo/cardano-serialization-lib-nodejs": "15.0.3",
     "ai": "7.0.127",
-    "zod": "4.6.5",
-    "@ai-sdk/openai-compatible": "3.0.62"
+    "eve": "0.71.0",
+    "zod": "4.6.5"
   },
   "description": "Privacy-aware data commitments with a paid Cardano (Masumi/Sokosumi) agent service"
 }

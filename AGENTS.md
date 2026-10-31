@@ -17,6 +17,7 @@ Do not claim live execution, registration, or seller payment without measured ev
 
 ## ChainBridge rules
 - Cryptography (`src/core/canonical.mjs`, `merkle.mjs`, `commitment.mjs`, `job.mjs`) never depends on AI output. Changing canonicalization or hashing changes every root: bump the protocol/domain version.
-- Raw records never leave the browser. The server, agent job, audit log and AI planner receive hashes, metadata or schema summaries only.
+- Full records never leave the browser. The paid agent receives record fingerprints plus a masked sample (private columns hidden, at most 10 rows, shown to the user before approval); the audit log and AI planner receive hashes, metadata or schema summaries only.
+- The agent publishes only the fingerprint, record count and job reference on Cardano (metadata label 674), once per job, from its dedicated Preprod publishing wallet (`.local/publishing-wallet.json`, never committed).
 - No payment, task submission or publication without the approval gate in `src/server/tasks.mjs`. Uncertain external writes go to `needs_inspection`; never add automatic retries.
 - Task and payment states come from local actions or saved Sokosumi/MPS responses. Never fabricate transaction hashes, receipts or confirmations.

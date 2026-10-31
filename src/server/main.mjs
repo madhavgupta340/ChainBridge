@@ -13,6 +13,8 @@ import {createSokosumiSubmitter,readWorkerJournal} from './sokosumi.mjs';
 import {aiPlan,sanitizeSummary} from './ai-planner.mjs';
 import {aiOrganize} from './ai-organizer.mjs';
 import {aiSettings} from './ai-config.mjs';
+import {runJob} from '../core/job.mjs';
+import {describeStep} from '../core/recipe.mjs';
 import {PAYMENT_STATUS,TASK_STATES} from './states.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
@@ -31,7 +33,9 @@ function staticPath(pathname){
 export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbridge'),journalDir=join(root,'.local'),submit,ai=aiPlan,organize=sample=>aiOrganize(sample,{settings:aiSettings()})}={}){
  const audit=createAuditLog(join(dataDir,'audit.jsonl'));
  const tasks=createTaskService({store:createTaskStore(join(dataDir,'tasks')),audit,config,
-  submit:submit??createSokosumiSubmitter(config),readJournal:id=>readWorkerJournal(id,journalDir)});
+  submit:submit??createSokosumiSubmitter(config),readJournal:id=>readWorkerJournal(id,journalDir),
+  // Local demo: same job with AI analysis when configured, but never publishes on Cardano.
+  run:text=>runJob(text,{describeStep,analyze:aiSettings()?sample=>aiOrganize(sample,{settings:aiSettings()}):undefined})});
  const send=(res,status,data)=>{res.writeHead(status,{...HEADERS,'content-type':TYPES.json,'cache-control':'no-store'});res.end(JSON.stringify(data));};
  async function body(req){
   if(!(req.headers['content-type']||'').startsWith('application/json'))throw new TaskError(415,'Expected application/json');

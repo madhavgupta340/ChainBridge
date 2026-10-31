@@ -126,8 +126,11 @@ test('Status refresh follows the worker journal without skipping backwards',asyn
   assert.equal(svc.refresh(task.id).state,'awaiting_payment');
   journal={paid:{stage:'awaiting-result',resultHash:'r',payment:{blockchainIdentifier:'bid'},observed:{onChainState:'ResultSubmitted',CurrentTransaction:{txHash:'tx1',status:'Pending'}}}};
   const t=svc.refresh(task.id);assert.equal(t.state,'result_submitted');assert.equal(t.evidence.lastTxHash,'tx1');
+  assert.equal(t.result,undefined,'no answer shown before it is delivered');
+  journal={paid:{stage:'awaiting-withdrawal',result:'ChainBridge certificate: ok',payment:{blockchainIdentifier:'bid'}}};
+  const delivered=svc.refresh(task.id);assert.equal(delivered.state,'completed');assert.equal(delivered.result,'ChainBridge certificate: ok');
   journal={paid:{stage:'awaiting-escrow'}};
-  const back=svc.refresh(task.id);assert.equal(back.state,'result_submitted');assert.match(back.detail,/unexpected state change/);
+  const back=svc.refresh(task.id);assert.equal(back.state,'completed');assert.match(back.detail,/unexpected state change/);
  }finally{done();}
 });
 test('Sokosumi CLI arguments follow the documented create command',()=>{

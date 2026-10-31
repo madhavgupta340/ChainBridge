@@ -10,6 +10,10 @@ const sha=t=>createHash('sha256').update(t,'utf8').digest('hex');
 export class TaskError extends Error{constructor(status,message){super(message);this.status=status;}}
 
 function describe(job){
+ if(job.task==='certify')return {operation:`Full service: AI analysis of a masked sample of your data (${job.sample.columns.length} columns), an independent check of your fingerprint from ${job.leaves.length} record fingerprints, and publication of the fingerprint on Cardano Preprod in a transaction paid by the agent.`,
+  expectedResult:'A certificate with the AI data-quality report and suggested tidy-up steps, the fingerprint check, and the Cardano transaction link of the published fingerprint.',
+  sent:`A masked sample (${job.sample.sampleRows?.length??0} rows, private columns hidden) and ${job.leaves.length} record fingerprints. Not your full file.`,
+  summary:{recordCount:job.payload.leafCount,strategy:job.payload.strategy,salted:job.payload.salted,commitment:job.payload.root}};
  if(job.task==='anchor')return {operation:`Independently recompute the Merkle root of ${job.leaves.length} leaf hash(es), check it against your commitment, and return an anchoring certificate.`,
   expectedResult:'A certificate stating whether the supplied root matches, with the exact public payload. In paid mode the hash of this result is submitted to the Masumi escrow contract on Cardano Preprod.',
   sent:'Leaf hashes and the public payload only. No record values leave your browser.',
@@ -33,7 +37,8 @@ export function createTaskService({store,audit,config,submit,readJournal,run=run
   const d=describe(job);
   const q={...quoteFor(config),operation:d.operation,expectedResult:d.expectedResult,dataSent:d.sent,network:NETWORK.label,
    networkFee:'Estimate unavailable. Cardano network fees for the escrow transactions are separate from the service price and are not calculated by ChainBridge.',
-   aiCost:config.mode==='demo'?'None. No AI is used.':'None for the result: it is calculated without AI. Follow-up questions on the Sokosumi task use your AI provider, which bills you separately.',
+   aiCost:job.task==='certify'?'Included: the agent runs the AI analysis with its own AI provider.':config.mode==='demo'?'None. No AI is used.':'None for the result: it is calculated without AI. Follow-up questions on the Sokosumi task use your AI provider, which bills you separately.',
+   publishingFee:job.task==='certify'?(config.mode==='demo'?'None: the local demo does not publish.':'Included: about 0.2 test ADA, paid by the agent from its own publishing wallet.'):null,
    jobDigest};
   const task={id:randomUUID(),kind:job.task,mode:config.mode,state:'awaiting_approval',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),
    jobText,jobDigest,summary:d.summary,quote:q,quoteHash:sha(canonicalize(q)),paymentStatus:config.mode==='demo'?'not_required':config.paid?'pending_request':'disabled',
@@ -78,9 +83,10 @@ export function createTaskService({store,audit,config,submit,readJournal,run=run
   let task=store.get(id);if(!task)throw new TaskError(404,'Task not found');
   if(task.mode!=='sokosumi'||!task.sokosumiTaskId||['settled','failed','cancelled'].includes(task.state))return task;
   const obs=fromWorkerJournal(readJournal(task.sokosumiTaskId));
-  const changed=obs.state!==task.state||obs.payment&&obs.payment!==task.paymentStatus||JSON.stringify(obs.evidence)!==JSON.stringify(task.evidence);
+  const changed=obs.state!==task.state||obs.payment&&obs.payment!==task.paymentStatus||JSON.stringify(obs.evidence)!==JSON.stringify(task.evidence)||(obs.result&&obs.result!==task.result);
   if(!changed)return task;
-  const next={...task,paymentStatus:obs.payment??task.paymentStatus,evidence:obs.evidence??task.evidence,uncertain:obs.uncertain,detail:obs.detail};
+  const next={...task,paymentStatus:obs.payment??task.paymentStatus,evidence:obs.evidence??task.evidence,uncertain:obs.uncertain,detail:obs.detail,
+   ...(obs.result?{result:obs.result,resultHash:createHash('sha256').update(obs.result,'utf8').digest('hex')}:{})};
   if(obs.state!==task.state){
    try{task=transition(next,obs.state);}catch{task={...next,detail:`${obs.detail} (unexpected state change from ${task.state}; inspect the worker log)`};}
   }else task=next;

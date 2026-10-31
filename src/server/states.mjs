@@ -64,9 +64,12 @@ export function fromWorkerJournal(journal){
  if(!journal)return {state:'submitted',payment:null,uncertain:false,detail:'Waiting for the worker to pick up the task.'};
  if(journal.phase==='input-rejected')return {state:'failed',payment:'disabled',uncertain:false,detail:journal.reason||'The agent rejected the task input without charging.'};
  const p=journal.paid;
+ const delivered=['completed'].includes(journal.phase)||['awaiting-result','complete-ready','complete-pending','awaiting-withdrawal','settled'].includes(p?.stage);
+ const text=journal.resultText??p?.result;
+ const result=delivered&&typeof text==='string'?text:null;
  if(!p){
   const map={starting:'processing',started:'processing','model-pending':'processing','result-saved':'processing','complete-pending':'processing',completed:'completed'};
-  return {state:map[journal.phase]??'processing',payment:'disabled',uncertain:/-pending$|^starting$/.test(journal.phase)&&journal.phase!=='completed',detail:`Worker phase: ${journal.phase}`};
+  return {state:map[journal.phase]??'processing',payment:'disabled',result,uncertain:/-pending$|^starting$/.test(journal.phase)&&journal.phase!=='completed',detail:`Worker phase: ${journal.phase}`};
  }
  const stage=p.stage;
  const map={
@@ -79,7 +82,7 @@ export function fromWorkerJournal(journal){
  };
  const [state,payment]=map[stage]??['processing','unknown'];
  const tx=p.observed?.CurrentTransaction;
- return {state,payment,uncertain:/-pending$/.test(stage),detail:`Worker payment stage: ${stage}`,
+ return {state,payment,result,uncertain:/-pending$/.test(stage),detail:`Worker payment stage: ${stage}`,
   evidence:{blockchainIdentifier:p.payment?.blockchainIdentifier??null,onChainState:p.observed?.onChainState??null,
    lastTxHash:tx?.txHash??null,lastTxStatus:tx?.status??null,resultHash:p.resultHash??null,
    settlementTxHash:p.settlement?.verified?p.settlement.txHash:null,sellerNetAtomicUnits:p.settlement?.verified?p.settlement.netAtomicUnits:null,

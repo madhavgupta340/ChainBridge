@@ -23,7 +23,7 @@ const RX={
 const NAME_RULES=[
  [/(^|_|\b)(e-?mail)/i,'Email address','personal'],
  [/phone|mobile|tel(ephone)?\b|fax/i,'Phone number','personal'],
- [/(first|last|full|given|family|sur)[ _-]?name|^name$|customer[ _-]?name|patient|employee[ _-]?name|owner/i,'Person name','personal'],
+ [/(first|last|full|given|family|sur)[ _-]?name|^name$|(customer|employee|inspector|contact|person|user|author|buyer|driver|recipient|sender|signer|approver|client|staff|member|holder|manager|agent|technician|auditor|courier|passenger|student|tenant)[ _-]?name|patient|owner/i,'Person name','personal'],
  [/address|street|city|zip|postal|postcode/i,'Street address or location','personal'],
  [/ssn|social[ _-]?sec|passport|national[ _-]?id|tax[ _-]?id|steuer|driver[ _-]?lic|\bid[ _-]?card/i,'Government identifier','confidential'],
  [/iban|bic|swift|account[ _-]?(no|num|number)|card[ _-]?(no|num|number)|routing|bank/i,'Financial account identifier','confidential'],
@@ -71,6 +71,9 @@ export function analyzeField(name,records){
  const reasons=[];let sensitivity='none';
  for(const [rx,kind,level] of NAME_RULES)if(rx.test(name)){reasons.push(`Column name suggests: ${kind}`);if(rank(level)>rank(sensitivity))sensitivity=level;}
  for(const [why,level] of valueSignals(values)){reasons.push(why);if(rank(level)>rank(sensitivity))sensitivity=level;}
+ // A "...name" column whose values look like "Firstname Lastname" is treated as personal unless labelled otherwise.
+ const personLike=values.length>0&&values.filter(v=>/^\p{Lu}[\p{Ll}'-]+(\s+(van|von|de|der|da|di|le|la|del)?\s*\p{Lu}[\p{Ll}'-]+){1,3}$/u.test(v)).length/values.length>=0.8;
+ if(sensitivity==='none'&&/name$/i.test(name.replace(/[^\p{L}]/gu,''))&&personLike){reasons.push('Values look like person names');sensitivity='personal';}
  const distinct=new Set(values).size;
  const lowEntropy=values.length>0&&distinct<=Math.max(2,Math.ceil(values.length*0.1));
  return {name,type,sensitivity,reasons,missing:raw.length-present.length,distinct,lowEntropy,

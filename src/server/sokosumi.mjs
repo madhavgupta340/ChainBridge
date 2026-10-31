@@ -31,5 +31,10 @@ export function createSokosumiSubmitter(config,run=execFile){
 export function readWorkerJournal(taskId,dir='.local'){
  if(!/^[\w-]{1,100}$/.test(taskId))return null;
  const path=`${dir}/${taskId}.json`;
- return existsSync(path)?JSON.parse(readFileSync(path,'utf8')):null;
+ if(!existsSync(path))return null;
+ const journal=JSON.parse(readFileSync(path,'utf8'));
+ // The delivered answer: kept in the paid journal, or in the result file the worker submitted.
+ const resultFile=`${dir}/${taskId}.txt`;
+ const resultText=journal.paid?.result??(existsSync(resultFile)?readFileSync(resultFile,'utf8'):null);
+ return {...journal,resultText};
 }
