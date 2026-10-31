@@ -501,3 +501,14 @@ td.changed-cell{color:var(--signal);font-weight:500}
 .pill.checking{display:inline-flex;align-items:center;gap:.45rem;color:var(--ink-2)}
 .pill.checking .spin{width:10px;height:10px}
 @media (max-width:720px){.slots{grid-template-columns:1fr}.slot+.slot{border-left:0;border-top:1px solid var(--line-2)}.slot{min-height:0}}
+
+/* ---------- locked "own wallet" option (demo) ---------- */
+.wallet-locked{display:flex;align-items:center;gap:.9rem;padding:1rem 1.2rem;border:1px dashed var(--line-2);background:var(--paper-2);opacity:.55;cursor:not-allowed;user-select:none}
+.wallet-locked .lock{display:grid;place-items:center;width:2.1rem;height:2.1rem;border:1px solid var(--line-2);flex:none}
+.wallet-locked .lock svg{width:16px;height:16px;fill:none;stroke:var(--ink);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.wallet-locked-text{display:grid;gap:.15rem;flex:1;min-width:0}
+.wallet-locked-text strong{font-weight:500}
+.wallet-locked-text span{font-size:.84rem;color:var(--ink-2)}
+.wallet-locked .tag{margin-left:0}
+.wallet-locked-note{margin:.1rem 0 .4rem}
+@media (max-width:560px){.wallet-locked{flex-wrap:wrap}.wallet-locked .tag{order:3}}

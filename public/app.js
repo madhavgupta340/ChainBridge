@@ -33,6 +33,9 @@ const VERIFY='verify';
 const SENS_LABEL={none:'Not sensitive',personal:'Personal',confidential:'Confidential'};
 const TYPE_LABEL={text:'Text',number:'Number',boolean:'Yes / no',datetime:'Date or time',url:'Web link',identifier:'ID',json:'Structured data'};
 const EXPLORER='https://preprod.cardanoscan.io/transaction/';
+// Demo setting: paying with your own browser wallet (CIP-30) is shown but locked; the demo pays with our own test
+// wallet. Set to false to offer Lace, Eternl etc. again (the payment code for them is unchanged).
+const OWN_WALLETS_LOCKED=true;
 
 // ---------- state helpers ----------
 const selectedRecords=()=>S.data?S.data.records.filter(r=>S.selected.has(r.sourceRow)):[];
@@ -373,6 +376,18 @@ function viewPrice(){
      h('li',{},'Only when your fingerprint is published is the payment sent to ChainBridge. If anything fails before that, you are not charged.'),
      h('li',{},'Finish within 30 minutes of paying, or the signed payment expires (and nothing is charged).')),
     S.paying?note('info',h('strong',{},'Payment in progress…')):
+    OWN_WALLETS_LOCKED?h('div',{class:'pay-options'},
+     h('h3',{},'Choose how to pay'),
+     h('div',{class:'wallet-locked','aria-disabled':'true'},
+      h('span',{class:'lock','aria-hidden':'true'},svg('svg',{viewBox:'0 0 16 16'},svg('rect',{x:3,y:7,width:10,height:7.5,rx:1}),svg('path',{d:'M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2'}))),
+      h('span',{class:'wallet-locked-text'},h('strong',{},'Your own Cardano wallet'),h('span',{},'Lace, Eternl or another Cardano wallet. You would approve the payment in the wallet itself.')),
+      h('span',{class:'tag'},'Locked for the demo')),
+     h('p',{class:'small muted wallet-locked-note'},'For this demo we use our own test wallets, so no personal wallet is needed. Test ADA has no real value.'),
+     x.demoWallet?[h('button',{class:'btn pay',type:'button',onclick:()=>payWith('demo')},
+       h('span',{class:'pay-label'},'Accept and pay with the demo test wallet'),h('span',{class:'pay-amount'},`${ada(s.quote.totalLovelace)} tADA`)),
+      h('p',{class:'small muted'},`Demo test wallet balance: ${x.demoWallet.balance!=null?ada(x.demoWallet.balance*1e6):'?'} tADA`)]
+      :note('warn','The demo test wallet is not set up on this computer (npm run demo-wallet).'),
+     h('button',{class:'btn ghost',type:'button',onclick:()=>{S.session=null;render();toast('Quote cancelled. Nothing was charged.');}},'Cancel')):
     h('div',{class:'pay-options'},
      wallets.map(w=>h('button',{class:'btn pay',type:'button',onclick:()=>payWith(w.key)},h('span',{class:'pay-label'},w.icon&&h('img',{src:w.icon,alt:'',class:'wallet-icon'}),`Accept and pay with ${w.name}`),h('span',{class:'pay-amount'},`${ada(s.quote.totalLovelace)} tADA`))),
      !wallets.length&&note('info','No Cardano browser wallet found. To pay with your own wallet, install Lace or Eternl in Chrome, switch it to Preprod (test network), and get free test ADA from the Cardano faucet.'),
@@ -380,7 +395,7 @@ function viewPrice(){
       h('span',{class:'pay-label'},'Accept and pay with the demo test wallet'),h('span',{class:'pay-amount'},`${ada(s.quote.totalLovelace)} tADA`)),
      x.demoWallet&&h('p',{class:'small muted'},`Demo test wallet balance: ${x.demoWallet.balance!=null?ada(x.demoWallet.balance*1e6):'?'} tADA`),
      h('button',{class:'btn ghost',type:'button',onclick:()=>{S.session=null;render();toast('Quote cancelled. Nothing was charged.');}},'Cancel')),
-    x.demoWallet&&h('p',{class:'small muted'},'The demo test wallet lives on this laptop so the service can be shown without a wallet extension. With a real wallet, you approve the payment in the wallet itself.'),
+    !OWN_WALLETS_LOCKED&&x.demoWallet&&h('p',{class:'small muted'},'The demo test wallet lives on this laptop so the service can be shown without a wallet extension. With a real wallet, you approve the payment in the wallet itself.'),
    ],
    s.status!=='quoted'&&note('ok',h('strong',{},'Payment signed and verified. '),s.status==='complete'?`Paid ${ada(s.quote.totalLovelace)} tADA.`:'Nothing is charged until your fingerprint is published.'),
    tech(facts([['Protocol','x402 "exact" scheme on cardano:preprod, direct payment (no escrow)'],['Paid to (ChainBridge)',x.payTo],
