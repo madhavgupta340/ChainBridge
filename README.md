@@ -1,8 +1,11 @@
 # ChainBridge
 
+<video src="./Project%20Video.mp4" controls width="100%"></video>
+
 **A pay-per-use AI agent on Cardano that reads your documents and data, picks out the facts that matter, seals them with a fingerprint, and publishes that fingerprint on the blockchain as public proof.**
 
 A customer uploads **PDFs, photos or screenshots** (e.g. a car inspection report), or a CSV/JSON table, and gets a **free price quote** calculated from simple measurements of the file. If they accept, they **pay once with x402**, a direct pay-per-request protocol on Cardano with no escrow and no account. The ChainBridge agent then does the paid work:
+# ChainBridge
 
 1. **AI extraction or tidy-up:** for documents, Meta AI reads each file and extracts the relevant facts (identifiers, dates, results, measurements, findings buried in paragraphs), skipping boilerplate, each with the exact source words as evidence. For tables, it analyses a masked sample and suggests fixes. The customer confirms or edits everything.
 2. **Fingerprint:** a salted SHA-256 Merkle root of the chosen columns, created in the customer's browser.
