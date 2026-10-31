@@ -12,7 +12,8 @@
     "api": "node --env-file-if-exists=.env --env-file-if-exists=.local/mps-runtime.env agent-api.mjs",
     "test": "node --env-file-if-exists=.env --test *.test.mjs test/*.test.mjs",
     "publish-wallet": "node --env-file-if-exists=.env src/server/publish-wallet.mjs",
-    "demo-wallet": "node -e \"import('./src/server/cardano-anchor.mjs').then(m=>{const f='.local/demo-buyer-wallet.json';let w=m.loadPublishingWallet(f);if(!w){m.createPublishingWallet(f);w=m.loadPublishingWallet(f);console.log('Created demo buyer wallet (test network only).');}console.log(w.address)})\""
+    "demo-wallet": "node -e \"import('./src/server/cardano-anchor.mjs').then(m=>{const f='.local/demo-buyer-wallet.json';let w=m.loadPublishingWallet(f);if(!w){m.createPublishingWallet(f);w=m.loadPublishingWallet(f);console.log('Created demo buyer wallet (test network only).');}console.log(w.address)})\"",
+    "build:pages": "node scripts/build-pages.mjs dist/pages"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "3.0.62",

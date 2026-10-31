@@ -10,18 +10,22 @@ import {sha256Hex} from '/core/documents.mjs';
 import {versionHistory} from './versions.js';
 
 const EXPLORER='https://preprod.cardanoscan.io/transaction/';
-const V={cert:null,link:null,server:null,serverError:null,file:null,fileResult:null,loadError:null,certLoading:false,fileLoading:false};
+// Where the Cardano and signature checks come from: the local ChainBridge server (default), or a browser-only backend
+// on the public check page (static-check.js). getCertificate is only available with a server.
+const SERVER={check:c=>api('/api/verify/check',{certificate:c}),getCertificate:id=>api(`/api/certificates/${id}`),chain:null};
+const V={backend:SERVER,cert:null,link:null,server:null,serverError:null,file:null,fileResult:null,loadError:null,certLoading:false,fileLoading:false};
 let root=null;
 const note=(kind,...c)=>h('div',{class:`note ${kind}`,role:kind==='error'?'alert':null},...c);
 const date=iso=>iso?new Date(iso).toLocaleString('en-GB',{dateStyle:'long',timeStyle:'short'}):'';
 
 // Mounts the checker into `el` (kept by the caller and re-attached on tab switches, so its state survives).
-export function mountChecker(el){root=el;root.classList.add('verify-page');render();}
+export function mountChecker(el,{backend}={}){root=el;if(backend)V.backend=backend;root.classList.add('verify-page');render();}
 // Keeps a loading state visible long enough to be seen, so fast steps don't flash.
 const atLeast=(ms,p)=>Promise.all([p,new Promise(r=>setTimeout(r,ms))]).then(([v])=>v);
 export async function openCertificateId(id){
  Object.assign(V,{loadError:null,certLoading:true});render();
- try{const r=await atLeast(500,api(`/api/certificates/${id}`));V.certLoading=false;await useCertificate(r.certificate,r.link);}
+ try{if(!V.backend.getCertificate)throw new Error('Certificate links only open in the ChainBridge app. Open the certificate file instead.');
+  const r=await atLeast(500,V.backend.getCertificate(id));V.certLoading=false;await useCertificate(r.certificate,r.link);}
  catch(e){Object.assign(V,{loadError:e.message,certLoading:false});render();}
 }
 const clearCert=()=>{Object.assign(V,{cert:null,link:null,server:null,serverError:null,fileResult:null,loadError:null});render();};
@@ -37,7 +41,7 @@ async function useCertificate(cert,link=null){
  try{V.cert=validateCertificate(cert);}catch(e){Object.assign(V,{loadError:e.message,certLoading:false});return render();}
  Object.assign(V,{link,server:null,serverError:null,loadError:null,fileResult:V.file?await checkFile(V.cert,V.file.sha256):null});
  render();
- try{V.server=await atLeast(700,api('/api/verify/check',{certificate:V.cert}));}catch(e){V.serverError=e.message;}
+ try{V.server=await atLeast(700,V.backend.check(V.cert));}catch(e){V.serverError=e.message;}
  render();
 }
 async function onCertificateFile(f){
@@ -125,7 +129,7 @@ function certSlot(){
   onkeydown:e=>{if(e.key==='Enter')onPaste(e.target.value);}});
  return slot('1','The certificate','empty',
   drop({id:'cert',accept:'.json,application/json',title:'Open the certificate',hint:'The .json file you were sent',onfile:onCertificateFile}),
-  h('div',{class:'field paste'},h('label',{for:'certlink'},'Or paste the link'),
+  V.backend.getCertificate&&h('div',{class:'field paste'},h('label',{for:'certlink'},'Or paste the link'),
    h('div',{class:'row'},field,h('button',{class:'btn',type:'button',onclick:()=>onPaste(field.value)},'Open'))),
   V.loadError&&note('error',h('strong',{},'Could not open it. '),V.loadError));
 }
@@ -155,7 +159,7 @@ function render(){
    row('Cardano record','Does the Cardano transaction contain this fingerprint?',ca,srv?.cardano?.checkedBy),
    c.series&&row('Version link','Do the series, version number and previous version match the Cardano record?',versionCheck(),srv?.cardano?.checkedBy),
    row('Issuer signature','Was the certificate signed by the key named as its issuer?',is,srv?.issuer?.checkedBy)),
-  c?.series&&versionHistory(c.cardano.transaction,{expectedRoot:c.commitment.root,title:'Earlier versions of this certificate'}),
+  c?.series&&versionHistory(c.cardano.transaction,{expectedRoot:c.commitment.root,title:'Earlier versions of this certificate',chain:V.backend.chain}),
   both&&h('div',{class:'split'},
    h('div',{class:'panel public'},h('h3',{},'What a match proves'),h('ul',{},
     h('li',{},'Your file is byte-for-byte the file that was sealed.'),

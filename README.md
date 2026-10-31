@@ -18,7 +18,7 @@ Built for the TUM Blockchain & AI Hackathon (Oct 30–31, 2026), Cardano track: 
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification, shareable file checks, linked certificate versions, Excel/Word/XML input. 118 automated tests. |
+| Useful agent/service | **Met** | AI data tidy-up, privacy-aware fingerprinting, publication on Cardano, record verification, shareable file checks, linked certificate versions, Excel/Word/XML input, public check page. 122 automated tests. |
 | Gets paid on Cardano | **Met (test network)** | x402 payment of 4.75 tADA, settled on Preprod only after publication (below). Also two Masumi escrow payments via Sokosumi. |
 | Does the job on Cardano | **Met (test network)** | Fingerprints published as transaction metadata, read back from the chain. |
 | Reads unstructured documents | **Met (test network)** | A 2-page PDF inspection report: 30 facts extracted, boilerplate and a planted instruction ignored, sealed and published (below). |
@@ -273,6 +273,20 @@ It contains no record values, no extracted facts, no other files' hashes and no 
 
 Certificates are stored in `.local/chainbridge/certificates/` (file hash and proof only). They are created only for completed, published jobs, and only if the file's proof leads to the published root.
 
+## Public check page (GitHub Pages)
+
+The **Check a document** screen also runs as a static website: https://madhavgupta340.github.io/ChainBridge/ (once Pages is enabled). It has no server and no API keys.
+- **File match:** the file is hashed in the visitor's browser and never uploaded, as in the app.
+- **Cardano record and version history:** read in the browser from the public **Koios** API (Cardano Preprod), using the same chain walk as the server (`src/core/versionchain.mjs`).
+- **Issuer signature:** verified in the browser with WebCrypto Ed25519. A BLAKE2b key hash (`src/core/cardano-address.mjs`, tested against the Cardano Serialization Lib) confirms the key owns the address that published the transaction.
+- **When Koios is busy or unreachable** (it rate-limits shared networks), the Cardano checks show **Not checked** with the transaction link, never Valid.
+- **What it doesn't do:** seal, pay or look up certificates by link. Visitors open the certificate file. Sealing stays in the local app.
+
+**Building and publishing:**
+- `npm run build:pages` builds it to `dist/pages`.
+- `.github/workflows/pages.yml` publishes it on every push to `main`.
+- **One-time setup:** repository Settings → Pages → Source: **GitHub Actions**.
+
 ## Linked certificate versions
 
 Any certificate (documents or spreadsheets) can get newer versions. **Three terms:**
@@ -349,7 +363,7 @@ Extension points: new connectors (databases, APIs) only need to produce `{source
 
 ## Tests
 
-`npm test` runs 118 tests: the template's 29 plus ChainBridge's 89. They cover Excel, Word and XML reading (type detection, table rows, zip limits, text sent to the AI, every sample loads). They cover linked certificate versions (metadata, predecessor checks, chain rebuilding with gaps, repeats, other series, loops, missing transactions and outages, nothing stored) and shareable verification:
+`npm test` runs 122 tests: the template's 29 plus ChainBridge's 93. They cover the public check page (static build has no secrets or absolute paths, browser-only Cardano, signature and version checks, "not checked" when the public API is busy, BLAKE2b against the Cardano library). They cover Excel, Word and XML reading (type detection, table rows, zip limits, text sent to the AI, every sample loads). They cover linked certificate versions (metadata, predecessor checks, chain rebuilding with gaps, repeats, other series, loops, missing transactions and outages, nothing stored) and shareable verification:
 
 - file leaves and their privacy;
 - tampered certificates and proofs;

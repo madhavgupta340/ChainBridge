@@ -36,14 +36,7 @@ export function anchorMetadata({root,leafCount,files=0,salted,jobRef,version=nul
  const f=Number(files)||0;
  return {msg:['ChainBridge data fingerprint v1','sha-256 merkle root:',root,`records: ${Number(leafCount)-f}`,...(f?[`files: ${f}`]:[]),...versionLines(version),`salted: ${Boolean(salted)}`,`job: ${String(jobRef).slice(0,58)}`]};
 }
-// Reads a ChainBridge label-674 message back (null if it is not one).
-export function parseAnchorMessage(msg){
- if(!Array.isArray(msg)||msg[0]!=='ChainBridge data fingerprint v1')return null;
- const line=p=>{const l=msg.find(x=>typeof x==='string'&&x.startsWith(p));return l===undefined?null:l.slice(p.length);};
- const num=p=>{const v=line(p);return v===null?null:Number(v);};
- const i=msg.indexOf('prev tx:');
- return {root:msg[2]??null,records:num('records: '),files:num('files: ')??0,series:line('series: '),version:num('version: '),prevTx:i>=0?msg[i+1]??null:null,job:line('job: ')};
-}
+export {parseAnchorMessage} from '../core/anchor-message.mjs';
 
 // Standard Cardano wallet derivation (CIP-1852), account 0, first address, Preprod.
 export function walletFromEntropy(entropyHex){

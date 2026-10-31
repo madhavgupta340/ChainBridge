@@ -63,7 +63,9 @@ function rows(r,expected){
 }
 // Version history from `txHash` backwards. Cached per transaction, so re-renders don't refetch; every copy of the view
 // on the page is redrawn when the lookup finishes.
-export function versionHistory(txHash,{expectedRoot=null,title='Version history'}={}){
+// `chain` (optional): where the chain comes from; by default the local server's /api/versions route.
+export function versionHistory(txHash,{expectedRoot=null,title='Version history',chain=null}={}){
+ const fetchChain=chain??((tx,o)=>api(`/api/versions/${tx}/chain${o.expectedRoot?`?root=${o.expectedRoot}`:''}`));
  const key=`${txHash}:${expectedRoot??''}`;
  const el=h('section',{class:'vhist'});
  const head=(busy=false)=>h('div',{class:'vhist-head'},
@@ -71,7 +73,7 @@ export function versionHistory(txHash,{expectedRoot=null,title='Version history'
   h('button',{class:'btn small',type:'button',disabled:busy,onclick:load},busy?'Checking…':'Check again'));
  const load=()=>{
   const entry={loading:true,views:cache.get(key)?.views??new Set()};cache.set(key,entry);redraw();
-  api(`/api/versions/${txHash}/chain${expectedRoot?`?root=${expectedRoot}`:''}`)
+  fetchChain(txHash,{expectedRoot})
    .then(result=>Object.assign(entry,{loading:false,result}),e=>Object.assign(entry,{loading:false,error:e.message})).then(redraw);
  };
  const draw=view=>{

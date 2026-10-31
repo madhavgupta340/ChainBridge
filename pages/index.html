@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://preprod.koios.rest; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Check a Document · ChainBridge</title>
+<meta name="description" content="Check whether a document matches its ChainBridge certificate and the fingerprint recorded on Cardano. Your file never leaves your browser.">
+<link rel="stylesheet" href="./styles.css">
+<script type="module" src="./main.js"></script>
+</head>
+<body>
+<a class="skip" href="#view">Skip to content</a>
+<header class="top">
+ <div class="top-inner">
+  <div class="brand"><span class="logo" aria-hidden="true"></span><span class="name">ChainBridge</span></div>
+  <div class="badges"><span class="badge net">Cardano Preprod (test network)</span><span class="badge ok">Public check page</span></div>
+ </div>
+</header>
+<div class="page">
+ <div class="note info public-intro"><strong>Public check page.</strong> This page only checks documents: your file is hashed in your browser and never uploaded. The Cardano record is read from a public Cardano service. Sealing documents happens in the ChainBridge app (<a href="https://github.com/madhavgupta340/ChainBridge" rel="noopener">source on GitHub</a>).</div>
+ <main id="view" class="card" tabindex="-1"></main>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
