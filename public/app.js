@@ -8,6 +8,7 @@ import {h,svg,dropdown,mount,display,toast,api,download,short,copyButton} from '
 import {availableWallets,connect,signPayment} from './wallet.js';
 import {zip,toCsv} from './zip.js';
 import {paymentOverlay} from './payfx.js';
+import {mountChecker,openCertificateId} from './verify.js';
 import {ingest} from '/core/ingest.mjs';
 import {analyzeSchema,applyOverride,FIELD_TYPES,SENSITIVITY} from '/core/schema.mjs';
 import {recommendPlan,validatePlan,countDuplicates} from '/core/plan.mjs';
@@ -20,7 +21,8 @@ import {measure,measureDocuments,ada,PRICING} from '/core/pricing.mjs';
 import {describeDocument,sha256Hex,recordsFromExtractions,DOC_LIMITS} from '/core/documents.mjs';
 import {fileProof} from '/core/certificate.mjs';
 
-const S={config:null,x402:null,mode:'table',docs:[],source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],reviewSchema:null,selected:new Set(),plan:null,validation:null,
+// area: 'seal' (create a fingerprint, the paid flow) or 'check' (check a document against a certificate, free).
+const S={area:location.pathname.startsWith('/verify')?'check':'seal',config:null,x402:null,mode:'table',docs:[],source:null,shares:null,extract:null,extractConsent:false,data:null,original:null,schema:[],reviewSchema:null,selected:new Set(),plan:null,validation:null,
  commitment:null,salts:{},verify:null,organize:null,session:null,paying:null,busy:false,view:0,page:0,open:new Set()};
 const $=id=>document.getElementById(id);
 const PAGE=20,PREVIEW_ROWS=5,PREVIEW_COLS=5;
@@ -113,8 +115,41 @@ function renderStepper(){
    h('button',{type:'button','aria-label':'Verify a record',disabled:!canOpen(VERIFY),'aria-current':S.view===VERIFY?'step':null,onclick:()=>go(VERIFY),title:canOpen(VERIFY)?null:'Create a fingerprint first'},
     h('span',{class:'dot','aria-hidden':'true'},'Tool'),h('span',{class:'label'},'Verify a record'))));
 }
+// ---------- two things the app does: seal or check ----------
+const checkerEl=h('section',{class:'card'});let checkerReady=false;
+function setArea(area,certId){
+ S.area=area;
+ const path=area==='check'?(certId?`/verify/${certId}`:'/verify'):'/';
+ if(location.pathname!==path)history.pushState({},'',path);
+ render();
+ if(certId)openCertificateId(certId);
+ $('view').focus({preventScroll:true});window.scrollTo(0,0);
+}
+window.addEventListener('popstate',()=>{const m=location.pathname.match(/^\/verify(?:\/([0-9a-f]{32}))?$/);S.area=m?'check':'seal';render();if(m?.[1])openCertificateId(m[1]);});
+// Two things the app does, as page tabs: Seal (create a fingerprint, paid) or Check (verify a copy, free).
+const ICONS={
+ check:[['circle',{cx:7,cy:7,r:4.6}],['path',{d:'m10.4 10.4 3.6 3.6'}]]};
+const icon=name=>svg('svg',{class:'mode-icon',viewBox:'0 0 16 16','aria-hidden':'true'},ICONS[name].map(([t,a])=>svg(t,a)));
+function renderModes(){
+ const tab=(area,n,tag,label,desc)=>h('button',{type:'button',class:`mode ${S.area===area?'on':''}`,'aria-current':S.area===area?'page':null,onclick:()=>setArea(area)},
+  h('span',{class:'mode-meta'},h('span',{class:'mode-num'},n),h('span',{class:`mode-tag ${tag.toLowerCase()}`},tag)),
+  h('span',{class:'mode-label'},label,h('span',{class:'mode-arrow','aria-hidden':'true'},'→')),
+  h('span',{class:'mode-desc'},desc));
+ mount($('modes'),
+  tab('seal','01','Paid','Seal a document','Read it with AI, fingerprint it and publish the fingerprint on Cardano.'),
+  tab('check','02','Free','Check a document','See if a copy you received is exactly the version that was sealed.'));
+}
 function render(){
- renderHeader();renderStatus();renderStepper();
+ renderHeader();renderModes();
+ const checking=S.area==='check';
+ for(const id of ['status','activity'])$(id).hidden=checking;
+ $('stepper').parentElement.hidden=checking;
+ if(checking){
+  if(!checkerReady){mountChecker(checkerEl);checkerReady=true;}
+  if($('view').firstChild!==checkerEl)mount($('view'),checkerEl);
+  return;
+ }
+ renderStatus();renderStepper();
  const views=[viewUpload,viewReview,viewPrice,viewTidy,viewChoose,viewPublish,viewPackage];
  mount($('view'),h('section',{class:'card'},S.view===VERIFY?viewVerify():views[S.view]()));
 }
@@ -192,7 +227,11 @@ function viewUpload(){
     ondrop:e=>{e.preventDefault();e.currentTarget.classList.remove('over');onFiles(e.dataTransfer.files);}},
     h('strong',{},'Choose documents or a spreadsheet'),h('span',{},'PDF, photo, screenshot, CSV or JSON. Drag them here.'),
     h('small',{},`Up to ${DOC_LIMITS.maxFiles} documents (${DOC_LIMITS.maxBytes/1048576} MB, ${DOC_LIMITS.maxPages} pages each), or one spreadsheet with up to ${L.maxRows.toLocaleString('en')} records. Nothing is uploaded until you pay and agree.`)),
-   h('div',{class:'samples'},h('p',{},'Or try a sample:'),
+   h('div',{class:'samples'},
+    h('button',{class:'check-cta',type:'button',onclick:()=>setArea('check')},icon('check'),
+     h('span',{class:'check-cta-text'},h('strong',{},'Received a sealed document?'),h('span',{},'Check your copy here. Free, nothing is uploaded.')),
+     h('span',{class:'check-cta-arrow','aria-hidden':'true'},'→')),
+    h('p',{},'Or try a sample:'),
     h('button',{class:'btn',type:'button',onclick:()=>loadSample('car-inspection-report.pdf')},'Car inspection report (PDF)'),
     h('button',{class:'btn',type:'button',onclick:()=>loadSample('car-inspection-photo.png')},'Photo of an inspection report (image)'),
     h('button',{class:'btn',type:'button',onclick:()=>loadSample('messy-shipments.csv')},'Messy shipment list (CSV)'),
@@ -689,7 +728,7 @@ function shareCard(x){
    h('code',{class:'share-url break'},x.link.url),
    local?note('warn',h('strong',{},'Local demo link. '),'It only opens on a computer running this ChainBridge app, so other people can\'t use it yet. To share it, run ChainBridge at a public address and set PUBLIC_BASE_URL. Until then, send the certificate file: it opens on any ChainBridge verify page.')
     :h('p',{class:'small'},'Anyone with this link can check their copy of the file.'),
-   h('div',{class:'row'},h('a',{class:'btn small',href:`/verify/${id}`,target:'_blank',rel:'noopener'},'Open the check page ↗'),copyButton(x.link.url,'Copy link'),
+   h('div',{class:'row'},h('button',{class:'btn small',type:'button',onclick:()=>setArea('check',id)},'Try the check yourself →'),copyButton(x.link.url,'Copy link'),
     h('button',{class:'btn small ghost',type:'button',onclick:()=>download(`chainbridge-file-certificate-${id.slice(0,8)}.json`,JSON.stringify(x.certificate,null,2))},'Download certificate'))));
 }
 function viewShare(){
@@ -775,7 +814,9 @@ async function refreshActivity(){
 
 // ---------- start ----------
 (async()=>{
+ const linked=location.pathname.match(/^\/verify\/([0-9a-f]{32})$/)?.[1];
  try{[S.config,S.x402]=await Promise.all([api('/api/config'),api('/api/x402/info')]);}
  catch(e){mount($('view'),note('error',`Can't reach the ChainBridge app server: ${e.message}`));return;}
  render();refreshActivity();
+ if(linked)openCertificateId(linked);
 })();

@@ -203,6 +203,8 @@ Never put seed phrases, private keys or API keys in the repo, the browser, promp
 
 ## Shareable verification (for people you send a document to)
 
+The app does two things, chosen with the tabs at the top: **Seal a document** (the paid flow) and **Check a document** (free, no account, no payment). Verification links open the Check tab directly, and recipients can also open a certificate file or paste a link there.
+
 When a job is published, the package step creates **one certificate per original file**: the uploaded PDFs and images, or the original CSV/JSON. Each certificate has a verification link and a QR code. The recipient opens the link, adds their copy of the file and sees three separate checks:
 
 | Check | Question | Where it runs |
@@ -228,7 +230,7 @@ It contains no record values, no extracted facts, no other files' hashes and no 
 **Links and QR codes.** The QR code holds only the link: `<base>/verify/<certificate id>`. The base comes from `PUBLIC_BASE_URL`.
 - **When it is unset, or points to localhost:** links are labelled **local demo links**. They only open on a computer running this app, and the QR code is shown dimmed with that label.
 - **To share with other people:** run ChainBridge at an address they can reach and set `PUBLIC_BASE_URL`. The server still binds to 127.0.0.1, so exposing it is a deployment step, not done here.
-- **Without a public deployment:** send the certificate `.json` file instead. The ZIP has them under `file-certificates/`, and the recipient opens it on any ChainBridge `/verify` page.
+- **Without a public deployment:** send the certificate `.json` file instead. The ZIP has them under `file-certificates/`, and the recipient opens it in the **Check a document** tab of any running ChainBridge.
 
 Certificates are stored in `.local/chainbridge/certificates/` (file hash and proof only). They are created only for completed, published jobs, and only if the file's proof leads to the published root.
 
@@ -266,7 +268,7 @@ src/server/    main.mjs (HTTP + static) · tasks.mjs (quote/approval/execution) 
                x402-pay.mjs · x402-service.mjs · x402-routes.mjs (x402 payments) · cardano-anchor.mjs (publication) · share.mjs (certificates, link, QR, checks)
                config.mjs (mode, price) · sokosumi.mjs (CLI + worker journal) · ai-config.mjs (Meta) · ai-organizer.mjs
                ai-planner.mjs · audit.mjs · store.mjs
-public/        index.html · app.js · verify.html · verify.js (recipient check page) · ui.js · wallet.js (CIP-30) · zip.js (package) · styles.css
+public/        index.html · app.js · verify.js ("Check a document" tab, also opened by verification links) · ui.js · wallet.js (CIP-30) · zip.js (package) · styles.css
 chainbridge-answer.mjs   plugs the ChainBridge job into the template worker and MIP-003 API
 worker.mjs, paid-task.mjs, agent-api.mjs, payment-registration.mjs, settlement.mjs …   Masumi template (lightly adapted)
 test/          ChainBridge tests     *.test.mjs   template tests

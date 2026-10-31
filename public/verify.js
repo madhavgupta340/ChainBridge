@@ -1,18 +1,33 @@
-// Recipient page: check your copy of a file against a ChainBridge certificate.
+// "Check a document" tab of the ChainBridge app: check your copy of a file against a ChainBridge certificate.
+// Opened from the tab, or directly from a verification link (/verify/<certificate id>).
 //  File match       computed here, in this browser. The file is hashed locally and never uploaded.
 //  Cardano record   looked up by the ChainBridge server (Blockfrost); the transaction link lets anyone check it.
 //  Issuer signature checked by the ChainBridge server; a valid signature proves control of a key, not identity.
 // Each check is shown as valid, not valid or not checked. Nothing is shown as valid unless it was checked.
-import {h,mount,toast,api,download,copyButton} from './ui.js';
+import {h,mount,api,download,copyButton} from './ui.js';
 import {checkFile,validateCertificate} from '/core/certificate.mjs';
 import {sha256Hex} from '/core/documents.mjs';
 
 const EXPLORER='https://preprod.cardanoscan.io/transaction/';
 const V={cert:null,link:null,server:null,serverError:null,file:null,fileResult:null,loadError:null,busy:false};
-const $=id=>document.getElementById(id);
+let root=null;
 const note=(kind,...c)=>h('div',{class:`note ${kind}`,role:kind==='error'?'alert':null},...c);
 const date=iso=>iso?new Date(iso).toLocaleString('en-GB',{dateStyle:'long',timeStyle:'short'}):'';
 
+// Mounts the checker into `el` (kept by the caller and re-attached on tab switches, so its state survives).
+export function mountChecker(el){root=el;root.classList.add('verify-page');render();}
+export async function openCertificateId(id){
+ V.loadError=null;
+ try{const r=await api(`/api/certificates/${id}`);await useCertificate(r.certificate,r.link);}
+ catch(e){V.loadError=e.message;render();}
+}
+export function resetChecker(){Object.assign(V,{cert:null,link:null,server:null,serverError:null,file:null,fileResult:null,loadError:null,busy:false});render();}
+// A pasted verification link or bare certificate identifier.
+function onPaste(text){
+ const m=String(text).trim().match(/(?:^|\/verify\/)([0-9a-f]{32})\/?$/i);
+ if(!m){V.loadError='That is not a ChainBridge verification link or certificate ID.';return render();}
+ openCertificateId(m[1].toLowerCase());
+}
 async function useCertificate(cert,link=null){
  try{V.cert=validateCertificate(cert);}catch(e){V.loadError=e.message;return render();}
  Object.assign(V,{link,server:null,serverError:null,loadError:null,fileResult:V.file?await checkFile(V.cert,V.file.sha256):null});
@@ -82,18 +97,26 @@ function verdict(f,c){
 
 // ---------- page ----------
 function render(){
+ if(!root)return;
  const c=V.cert;
- if(!c)return mount($('view'),
+ if(!c){
+  const field=h('input',{type:'text',id:'certlink',class:'grow',placeholder:'https://…/verify/3254f4bd…  or the certificate ID',autocomplete:'off',spellcheck:'false',
+   onkeydown:e=>{if(e.key==='Enter')onPaste(e.target.value);}});
+  return mount(root,
   h('div',{class:'eyebrow'},h('span',{class:'num'},'Check'),h('span',{},'Free, nothing is uploaded')),
-  h('h1',{},'Check a document',h('span',{class:'dot'},'.')),
-  h('p',{class:'lead'},'Someone sent you a ChainBridge certificate? Open it here, then add your copy of the file to see if it is the exact version that was sealed.'),
+  h('h2',{tabindex:-1},'Check a document',h('span',{class:'dot'},'.')),
+  h('p',{class:'lead'},'Someone sent you a document sealed with ChainBridge? Open its certificate, then add your copy of the file to see if it is the exact version that was sealed.'),
   h('div',{class:'upload single'},drop({id:'cert',accept:'.json,application/json',title:'Open the certificate',hint:'The .json certificate file you were sent.',onfile:onCertificateFile})),
+  h('div',{class:'field paste'},h('label',{for:'certlink'},'Or paste the verification link'),
+   h('div',{class:'row'},field,h('button',{class:'btn',type:'button',onclick:()=>onPaste(field.value)},'Open'))),
   V.loadError&&note('error',h('strong',{},'Could not open it. '),V.loadError));
+ }
 
  const f=fileCheck(),ca=cardanoCheck(),is=issuerCheck(),srv=V.server;
- return mount($('view'),
+ return mount(root,
   h('div',{class:'eyebrow'},h('span',{class:'num'},'Check'),h('span',{},'Free, your file is not uploaded')),
-  h('h1',{},'Is this the sealed file',h('span',{class:'dot'},'?')),
+  h('h2',{tabindex:-1},'Is this the sealed file',h('span',{class:'dot'},'?')),
+  h('div',{class:'row'},h('button',{class:'btn ghost small',type:'button',onclick:resetChecker},'← Check a different certificate')),
   h('p',{class:'lead'},'You were sent a ChainBridge certificate for ',h('strong',{},c.file.name),'. Add your copy of that file to check whether it is exactly the version that was sealed and recorded on the Cardano blockchain.'),
   c.testNetwork&&note('info',h('strong',{},'Test network. '),'This certificate uses Cardano Preprod, a public test network. It works like the real Cardano network, but its tokens have no value.'),
   h('div',{class:'upload single'},drop({id:'mine',accept:'',title:V.file?`Checked: ${V.file.name}`:`Add your copy of ${c.file.name}`,
@@ -136,9 +159,3 @@ function details(c,srv){
    V.link&&copyButton(V.link.url,'Copy link'))));
 }
 
-(async()=>{
- const m=location.pathname.match(/^\/verify\/([0-9a-f]{32})$/);
- if(!m)return render();
- try{const r=await api(`/api/certificates/${m[1]}`);useCertificate(r.certificate,r.link);}
- catch(e){V.loadError=e.message;render();toast(e.message,'error');}
-})();
