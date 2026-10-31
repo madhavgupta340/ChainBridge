@@ -7,6 +7,7 @@
 import {h,svg,dropdown,mount,display,toast,api,download,short,copyButton} from './ui.js';
 import {availableWallets,connect,signPayment} from './wallet.js';
 import {zip,toCsv} from './zip.js';
+import {paymentOverlay} from './payfx.js';
 import {ingest} from '/core/ingest.mjs';
 import {analyzeSchema,applyOverride,FIELD_TYPES,SENSITIVITY} from '/core/schema.mjs';
 import {recommendPlan,validatePlan,countDuplicates} from '/core/plan.mjs';
@@ -274,8 +275,11 @@ async function getQuote(){
  S.busy=false;render();
 }
 async function payWith(kind){
- const id=S.session.id;
- const step=t=>{S.paying=t;render();};
+ const id=S.session.id,amount=`${ada(S.session.quote.totalLovelace)} tADA`;
+ const fx=paymentOverlay({title:'Authorising your payment',amount,steps:kind==='demo'
+  ?['Getting the payment details from ChainBridge','Signing with the demo test wallet','Checking the signed payment']
+  :['Getting the payment details from ChainBridge','Approve the payment in your wallet','Checking the signed payment']});
+ let n=0;const step=t=>{S.paying=t;fx.step(n++);};
  try{
   step('Asking ChainBridge for its payment details (HTTP 402)…');
   const r402=await fetch(`/x402/session/${id}`);
@@ -285,9 +289,7 @@ async function payWith(kind){
    step('Signing with the demo test wallet and checking the payment…');
    S.session=await api(`/api/x402/session/${id}/demo-pay`,{});
   }else{
-   step('Connecting to your wallet…');
    const {api:wallet,address}=await connect(kind);
-   step('Preparing the payment…');
    const u=await api(`/api/x402/session/${id}/build`,{buyerAddress:address});
    step('Please approve the payment in your wallet…');
    const witnessSet=await signPayment(wallet,u.unsignedTx);
@@ -298,9 +300,10 @@ async function payWith(kind){
    if(!res.ok)throw new Error(body.error||`HTTP ${res.status}`);
    S.session=body;
   }
-  toast('Payment signed and verified. Nothing is charged until your fingerprint is published.','ok');
-  S.paying=null;refreshActivity();go(3);
- }catch(e){S.paying=null;toast(e.message,'error');render();}
+  S.paying=null;refreshActivity();
+  fx.success({headline:'Authorised',detail:[h('span',{},'Your wallet signed the payment and ChainBridge checked it.'),h('strong',{},'You are charged only when your fingerprint is published.')],
+   buttons:[[S.mode==='documents'?'Start the AI extraction →':'Start the AI tidy-up →',()=>go(3),true]]});
+ }catch(e){S.paying=null;render();fx.fail({headline:'Not authorised',detail:[h('span',{},e.message),h('strong',{},'Nothing was charged.')],buttons:[['Close',null,true]]});}
 }
 function viewPrice(){
  const s=S.session,x=S.x402,m=measurements();
@@ -327,12 +330,13 @@ function viewPrice(){
      h('li',{},`ChainBridge does the work: ${S.mode==='documents'?'AI extraction':'AI tidy-up'}, fingerprint, publication on Cardano.`),
      h('li',{},'Only when your fingerprint is published is the payment sent to ChainBridge. If anything fails before that, you are not charged.'),
      h('li',{},'Finish within 30 minutes of paying, or the signed payment expires (and nothing is charged).')),
-    S.paying?note('info',h('strong',{},S.paying)):
+    S.paying?note('info',h('strong',{},'Payment in progress…')):
     h('div',{class:'pay-options'},
-     wallets.map(w=>h('button',{class:'btn primary',type:'button',onclick:()=>payWith(w.key)},w.icon&&h('img',{src:w.icon,alt:'',class:'wallet-icon'}),`Accept and pay with ${w.name}`)),
+     wallets.map(w=>h('button',{class:'btn pay',type:'button',onclick:()=>payWith(w.key)},h('span',{class:'pay-label'},w.icon&&h('img',{src:w.icon,alt:'',class:'wallet-icon'}),`Accept and pay with ${w.name}`),h('span',{class:'pay-amount'},`${ada(s.quote.totalLovelace)} tADA`))),
      !wallets.length&&note('info','No Cardano browser wallet found. To pay with your own wallet, install Lace or Eternl in Chrome, switch it to Preprod (test network), and get free test ADA from the Cardano faucet.'),
-     x.demoWallet&&h('button',{class:wallets.length?'btn':'btn primary',type:'button',onclick:()=>payWith('demo')},
-      `Accept and pay with the demo test wallet · balance ${x.demoWallet.balance!=null?ada(x.demoWallet.balance*1e6):'?'} tADA`),
+     x.demoWallet&&h('button',{class:'btn pay',type:'button',onclick:()=>payWith('demo')},
+      h('span',{class:'pay-label'},'Accept and pay with the demo test wallet'),h('span',{class:'pay-amount'},`${ada(s.quote.totalLovelace)} tADA`)),
+     x.demoWallet&&h('p',{class:'small muted'},`Demo test wallet balance: ${x.demoWallet.balance!=null?ada(x.demoWallet.balance*1e6):'?'} tADA`),
      h('button',{class:'btn ghost',type:'button',onclick:()=>{S.session=null;render();toast('Quote cancelled. Nothing was charged.');}},'Cancel')),
     x.demoWallet&&h('p',{class:'small muted'},'The demo test wallet lives on this laptop so the service can be shown without a wallet extension. With a real wallet, you approve the payment in the wallet itself.'),
    ],
@@ -541,13 +545,29 @@ async function createProof(){
 }
 async function publishAndFinish(){
  S.busy=true;render();
+ const amount=`${ada(S.session.quote.totalLovelace)} tADA`;
+ const fx=paymentOverlay({title:'Publishing and paying',amount,steps:['Publishing your fingerprint on Cardano','Waiting for Cardano to confirm it','Completing your payment']});
+ fx.pace(14000);
  try{
   const c=S.commitment;
   S.session=await api(`/api/x402/session/${S.session.id}/publish`,{payload:c.payload,leaves:c.entries.map(e=>e.leafHash)});
-  if(S.session.status==='complete'){toast('Published on Cardano and paid. Your package is ready.','ok');S.busy=false;refreshActivity();return go(6);}
-  toast(S.session.error??`Status: ${S.session.status}`,'error');
- }catch(e){toast(e.message,'error');try{S.session=await api(`/api/x402/session/${S.session.id}`);}catch{}}
- S.busy=false;refreshActivity();render();
+  S.busy=false;refreshActivity();render();
+  const s=S.session;
+  if(s.status==='complete'){
+   const pub=s.publication,pay=s.settlement?.transaction;
+   fx.success({headline:'Paid',detail:[
+     h('span',{},pub.status==='confirmed'?`Fingerprint published on Cardano, block ${pub.blockHeight}.`:'Fingerprint sent to Cardano.'),
+     h('a',{href:EXPLORER+pub.txHash,target:'_blank',rel:'noopener'},`Publication ${pub.txHash.slice(0,10)}… ↗`),
+     pay&&h('a',{href:EXPLORER+pay,target:'_blank',rel:'noopener'},`Payment ${pay.slice(0,10)}… ↗`)],
+    buttons:[['Get your package →',()=>go(6),true]]});
+   return;
+  }
+  fx.fail({headline:s.status==='settle-failed'?'Published, payment not completed':'Not charged',detail:[h('span',{},s.error??`Status: ${s.status}`)],buttons:[['Close',null,true]]});
+ }catch(e){
+  try{S.session=await api(`/api/x402/session/${S.session.id}`);}catch{}
+  S.busy=false;refreshActivity();render();
+  fx.fail({headline:'Not charged',detail:[h('span',{},e.message)],buttons:[['Close',null,true]]});
+ }
 }
 function viewPublish(){
  const c=S.commitment,s=S.session,recs=selectedRecords(),p=S.plan;
@@ -565,9 +585,9 @@ function viewPublish(){
   c&&h('div',{class:'success'},
    h('h3',{},'✓ Fingerprint created on this device'),
    h('code',{class:'fingerprint'},c.root),
-   h('p',{class:'small'},`Seals ${c.stats.committed} records`+(c.stats.duplicates?` (${c.stats.duplicates} duplicate${c.stats.duplicates>1?'s':''} ${c.stats.dropped?'removed':'kept'})`:'')+'.'),
+   h('p',{class:'small'},`Seals ${c.stats.committed} record${c.stats.committed===1?'':'s'}`+(c.stats.duplicates?` (${c.stats.duplicates} duplicate${c.stats.duplicates>1?'s':''} ${c.stats.dropped?'removed':'kept'})`:'')+'.'),
    !complete()&&h('div',{class:'center-action'},
-    h('button',{class:'btn primary big',type:'button',disabled:S.busy||!paid(),onclick:publishAndFinish},S.busy?'Publishing on Cardano and completing payment…':`Publish on Cardano and pay ${ada(s.quote.totalLovelace)} tADA`),
+    h('button',{class:'btn pay',type:'button',disabled:S.busy||!paid(),onclick:publishAndFinish},h('span',{class:'pay-label'},S.busy?'Publishing on Cardano…':'Publish on Cardano and pay'),h('span',{class:'pay-amount'},`${ada(s.quote.totalLovelace)} tADA`)),
     h('p',{class:'hint'},'Takes about a minute: the agent publishes your fingerprint, waits for Cardano to confirm it, then your signed payment is sent.')),
    !complete()&&h('button',{class:'btn ghost small',type:'button',disabled:S.busy,onclick:createProof},'Create again'),
    complete()&&note('ok',h('strong',{},'Published and paid. '),'Your package is ready.')),
