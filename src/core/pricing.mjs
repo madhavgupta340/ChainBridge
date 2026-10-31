@@ -9,6 +9,8 @@ export const PRICING=Object.freeze({
  perPrivateColumn:250_000,        // columns labelled personal or confidential (masking and care)
  perTidyIssue:250_000,            // concrete tidy-up problems found (spaces, mixed dates, yes/no variants, duplicates, ...)
  perColumnOver10:100_000,         // wide tables
+ perDocumentPage:500_000,         // documents: each PDF page or image the AI reads
+ perDocument:250_000,             // documents: each file extracted and sealed
  minimum:2_000_000,
  maximum:20_000_000,
 });
@@ -22,8 +24,12 @@ export function measure(data,schema,countTidyIssues){
  return {records:data.records.length,columns:data.fields.length,privateColumns,tidyIssues:countTidyIssues(data)};
 }
 
+// Documents (PDFs, photos): the AI reads every page, so the price follows the page count.
+export function measureDocuments(docs){return {kind:'documents',documents:docs.length,pages:docs.reduce((n,d)=>n+d.pages,0)};}
+
 // Validates untrusted measurements and returns the price with a line-by-line breakdown.
 export function quote(m){
+ if(m?.kind==='documents')return quoteDocuments(m);
  const n=(v,max)=>{const x=Number(v);if(!Number.isInteger(x)||x<0||x>max)throw new Error('Invalid measurement');return x;};
  const records=n(m.records,1_000_000),columns=n(m.columns,1000),privateColumns=n(m.privateColumns,columns),tidyIssues=n(m.tidyIssues,1000);
  if(!records)throw new Error('The file has no records');
@@ -37,4 +43,16 @@ export function quote(m){
  if(total<PRICING.minimum)total=PRICING.minimum;
  if(total>PRICING.maximum){lines.push({label:'Price cap',lovelace:PRICING.maximum-total});total=PRICING.maximum;}
  return {measurements:{records,columns,privateColumns,tidyIssues},lines,totalLovelace:total,currency:PRICING.currency};
+}
+
+function quoteDocuments(m){
+ const n=(v,max)=>{const x=Number(v);if(!Number.isInteger(x)||x<1||x>max)throw new Error('Invalid measurement');return x;};
+ const documents=n(m.documents,10),pages=n(m.pages,400);
+ if(pages<documents)throw new Error('Invalid measurement');
+ const lines=[{label:'ChainBridge service: AI extraction, fingerprint and publication on Cardano',lovelace:PRICING.base},
+  {label:`${pages} page(s) or image(s) for the AI to read`,lovelace:pages*PRICING.perDocumentPage},
+  {label:`${documents} document(s) to extract and seal`,lovelace:documents*PRICING.perDocument}];
+ let total=lines.reduce((s,l)=>s+l.lovelace,0);
+ if(total>PRICING.maximum){lines.push({label:'Price cap',lovelace:PRICING.maximum-total});total=PRICING.maximum;}
+ return {measurements:{kind:'documents',documents,pages},lines,totalLovelace:total,currency:PRICING.currency};
 }

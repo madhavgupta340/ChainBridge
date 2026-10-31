@@ -12,10 +12,10 @@ export function aiSettings(env=process.env){
 }
 
 // One chat call. Returns the reply text. Only documented, widely supported parameters are sent.
-export async function chat(settings,messages,{fetchImpl=fetch,timeoutMs=60000}={}){
+export async function chat(settings,messages,{fetchImpl=fetch,timeoutMs=60000,responseFormat}={}){
  const response=await fetchImpl(`${settings.baseUrl}/chat/completions`,{method:'POST',redirect:'error',signal:AbortSignal.timeout(timeoutMs),
   headers:{'content-type':'application/json',authorization:`Bearer ${settings.apiKey}`},
-  body:JSON.stringify({model:settings.model,messages})});
+  body:JSON.stringify({model:settings.model,messages,...(responseFormat?{response_format:responseFormat}:{})})});
  if(!response.ok)throw new Error(`${settings.provider} AI returned HTTP ${response.status}`);
  const data=await response.json();
  const text=data?.choices?.[0]?.message?.content;

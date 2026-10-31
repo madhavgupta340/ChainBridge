@@ -15,13 +15,16 @@ import {CANON_ID} from '/core/canonical.mjs';
 import {LEAF_DOMAIN} from '/core/merkle.mjs';
 import {checkRecipe,applyRecipe,recipeRecord,describeStep} from '/core/recipe.mjs';
 import {buildAiSample,suggestRecipeLocally,countTidyIssues} from '/core/organize.mjs';
-import {measure,ada,PRICING} from '/core/pricing.mjs';
+import {measure,measureDocuments,ada,PRICING} from '/core/pricing.mjs';
+import {describeDocument,sha256Hex,recordsFromExtractions,DOC_LIMITS} from '/core/documents.mjs';
 
-const S={config:null,x402:null,data:null,original:null,schema:[],reviewSchema:null,selected:new Set(),plan:null,validation:null,
+const S={config:null,x402:null,mode:'table',docs:[],extract:null,extractConsent:false,data:null,original:null,schema:[],reviewSchema:null,selected:new Set(),plan:null,validation:null,
  commitment:null,salts:{},verify:null,organize:null,session:null,paying:null,busy:false,view:0,page:0,open:new Set()};
 const $=id=>document.getElementById(id);
 const PAGE=20,PREVIEW_ROWS=5,PREVIEW_COLS=5;
-const STEPS=['Upload data','Review data','Price & payment','AI tidy-up','Choose what to publish','Fingerprint & publish','Your package'];
+const STEP_NAMES=['Upload data','Review data','Price & payment','AI tidy-up','Choose what to publish','Fingerprint & publish','Your package'];
+const steps=()=>S.mode==='documents'?STEP_NAMES.map((n,i)=>i===1?'Review documents':i===3?'AI extraction':n):STEP_NAMES;
+const hasInput=()=>S.mode==='documents'?S.docs.length>0:!!S.data;
 const VERIFY='verify';
 const SENS_LABEL={none:'Not sensitive',personal:'Personal',confidential:'Confidential'};
 const TYPE_LABEL={text:'Text',number:'Number',boolean:'Yes / no',datetime:'Date or time',url:'Web link',identifier:'ID',json:'Structured data'};
@@ -34,7 +37,7 @@ const complete=()=>S.session?.status==='complete';
 function revalidate(){S.validation=S.plan?validatePlan(S.plan,S.schema,selectedRecords().length):null;}
 function canOpen(i){
  if(i===VERIFY)return !!S.commitment;
- return [true,!!S.data,!!S.data,paid(),paid(),paid()&&!!S.validation?.ok,complete()][i];
+ return [true,hasInput(),hasInput(),paid(),paid()&&!!S.data,paid()&&!!S.data&&!!S.validation?.ok,complete()][i];
 }
 function go(i){
  if(!canOpen(i))return;
@@ -55,7 +58,7 @@ const note=(kind,...children)=>h('div',{class:`note ${kind}`,role:kind==='error'
 const pad=n=>String(n).padStart(2,'0');
 function heading(text,sub){
  const i=S.view,isVerify=i===VERIFY,isPaid=!isVerify&&i>=3&&i<=5;
- return [h('div',{class:'eyebrow'},h('span',{class:'num'},isVerify?'Tool':`Step ${pad(i+1)} / ${pad(STEPS.length)}`),h('span',{},isVerify?'Free, on this device':STEPS[i]),isPaid&&h('span',{class:'paid-tag'},'Paid')),
+ return [h('div',{class:'eyebrow'},h('span',{class:'num'},isVerify?'Tool':`Step ${pad(i+1)} / ${pad(steps().length)}`),h('span',{},isVerify?'Free, on this device':steps()[i]),isPaid&&h('span',{class:'paid-tag'},'Paid')),
   h('h2',{tabindex:-1},text),sub&&h('p',{class:'lead'},sub)];
 }
 function actions({back,next,nextLabel,nextHint,disabled}){
@@ -74,7 +77,7 @@ function choice(name,value,options,onpick){
  return h('div',{class:'choices',role:'radiogroup'},options.map(([v,title,desc])=>h('label',{class:`choice ${v===value?'on':''}`},
   h('input',{type:'radio',name,value:v,checked:v===value,onchange:()=>onpick(v)}),h('span',{},h('strong',{},title),h('span',{class:'muted'},desc)))));
 }
-const WHAT_YOU_GET=['Cleaned data file (CSV): your data, tidied and sorted','Data report: what the AI found and what was changed',
+const WHAT_YOU_GET=['Data file (CSV): your data, tidied, or the facts extracted from your documents','Report: what the AI found, kept, changed and left out',
  'Certificate: your fingerprint, the date, and the Cardano transaction link as public proof','Proof file: private, used later to check any record'];
 
 // ---------- header, status strip, stepper ----------
@@ -97,7 +100,7 @@ function renderStatus(){
 }
 function renderStepper(){
  mount($('stepper'),
-  STEPS.map((label,i)=>{
+  steps().map((label,i)=>{
    const current=S.view===i,done=canOpen(i)&&i<S.view&&S.view!==VERIFY;
    const isPaid=i>=3&&i<=5;
    return h('li',{class:`${current?'current':''} ${done?'done':''} ${isPaid?'paid-step':''}`},
@@ -119,20 +122,52 @@ async function loadText(name,text,byteLength){
  try{
   const data=ingest({name,text,byteLength});
   if(S.session&&!complete()&&S.session.status!=='quoted')toast('Your earlier signed payment was not used, so it will not be charged.');
-  Object.assign(S,{original:data,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});useData(data);changed();
+  Object.assign(S,{mode:'table',docs:[],extract:null,extractConsent:false,original:data,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});useData(data);changed();
   toast(`Loaded ${data.records.length} records`,'ok');
  }catch(e){S.data=null;S.plan=null;S.loadError=e.message;changed();}
 }
-async function onFile(file){
- if(!file)return;
+const isTable=name=>/\.(csv|json)$/i.test(name);
+async function onFiles(list){
+ const files=[...(list||[])];if(!files.length)return;
  const L=S.config.limits;
- if(file.size>L.maxBytes){S.loadError=`This file is ${(file.size/1048576).toFixed(1)} MB. The limit is ${L.maxBytes/1048576} MB.`;return render();}
- if(!/\.(csv|json)$/i.test(file.name)){S.loadError='Please choose a .csv or .json file.';return render();}
- loadText(file.name,await file.text(),file.size);
+ if(files.length===1&&isTable(files[0].name)){
+  const file=files[0];
+  if(file.size>L.maxBytes){S.loadError=`This file is ${(file.size/1048576).toFixed(1)} MB. The limit is ${L.maxBytes/1048576} MB.`;return render();}
+  return loadText(file.name,await file.text(),file.size);
+ }
+ if(files.some(f=>isTable(f.name))){S.loadError='Load one spreadsheet, or one or more documents (PDFs, photos, screenshots), not both at once.';return render();}
+ loadDocuments(files);
 }
 async function loadSample(name){
- try{const res=await fetch(`/samples/${name}`);if(!res.ok)throw new Error();loadText(name,await res.text());}
+ try{const res=await fetch(`/samples/${name}`);if(!res.ok)throw new Error();
+  if(isTable(name))loadText(name,await res.text());else loadDocuments([new File([await res.blob()],name)]);}
  catch{S.loadError='Could not load the sample file.';render();}
+}
+const b64=bytes=>{let t='';for(let i=0;i<bytes.length;i+=32768)t+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(t);};
+// The copy sent to the AI. Transparent images get a white background (otherwise they can read as black).
+// The fingerprint always uses the original file.
+async function aiCopy(bytes,doc){
+ if(!['png','webp','gif'].includes(doc.type))return {name:doc.name,data:b64(bytes)};
+ const bmp=await createImageBitmap(new Blob([bytes],{type:doc.mime}));
+ const c=document.createElement('canvas');c.width=bmp.width;c.height=bmp.height;
+ const g=c.getContext('2d');g.fillStyle='#ffffff';g.fillRect(0,0,c.width,c.height);g.drawImage(bmp,0,0);
+ const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.92));
+ return {name:doc.name.replace(/\.[a-z0-9]+$/i,'')+'.jpg',data:b64(new Uint8Array(await blob.arrayBuffer()))};
+}
+async function loadDocuments(files){
+ try{
+  if(files.length>DOC_LIMITS.maxFiles)throw new Error(`Up to ${DOC_LIMITS.maxFiles} documents at once.`);
+  const docs=[];let total=0;
+  for(const f of files){
+   const bytes=new Uint8Array(await f.arrayBuffer());total+=bytes.length;
+   const info=describeDocument(f.name,bytes);
+   docs.push({...info,sha256:await sha256Hex(bytes),ai:await aiCopy(bytes,info),preview:info.type==='pdf'?null:URL.createObjectURL(new Blob([bytes],{type:info.mime}))});
+  }
+  if(total>DOC_LIMITS.maxTotalBytes)throw new Error(`The documents are ${(total/1048576).toFixed(1)} MB together. The limit is ${DOC_LIMITS.maxTotalBytes/1048576} MB.`);
+  if(S.session&&!complete()&&S.session.status!=='quoted')toast('Your earlier signed payment was not used, so it will not be charged.');
+  Object.assign(S,{mode:'documents',docs,extract:null,extractConsent:false,data:null,original:null,schema:[],plan:null,organize:null,session:null,reviewSchema:null,commitment:null,loadError:null});
+  changed();toast(`Loaded ${docs.length} document(s)`,'ok');
+ }catch(e){S.loadError=e.message;render();}
 }
 function useData(data,labels={}){
  S.data=data;S.schema=analyzeSchema(data.records,data.fields).map(f=>labels[f.name]?applyOverride(f,{sensitivity:labels[f.name]}):f);
@@ -140,28 +175,31 @@ function useData(data,labels={}){
 }
 function viewUpload(){
  const L=S.config.limits,d=S.data;
- const input=h('input',{type:'file',id:'file',accept:'.csv,.json,text/csv,application/json',class:'visually-hidden',onchange:e=>onFile(e.target.files[0])});
+ const input=h('input',{type:'file',id:'file',multiple:true,accept:'.csv,.json,.pdf,.png,.jpg,.jpeg,.webp,.gif',class:'visually-hidden',onchange:e=>onFiles(e.target.files)});
  return [
   h('section',{class:'hero'},
    h('div',{},
-    h('div',{class:'eyebrow'},h('span',{class:'num'},`Step 01 / ${pad(STEPS.length)}`),h('span',{},'Data integrity agent on Cardano')),
+    h('div',{class:'eyebrow'},h('span',{class:'num'},`Step 01 / ${pad(steps().length)}`),h('span',{},'Data integrity agent on Cardano')),
     h('h1',{tabindex:-1},'Seal your data.',h('br'),'Prove it later',h('span',{class:'dot'},'.')),
-    h('p',{class:'lead'},'ChainBridge tidies your spreadsheet with AI, seals it with a digital fingerprint, and publishes that fingerprint on the Cardano blockchain. Your file never leaves this device. You see the price first, and pay only when the fingerprint is published.')),
+    h('p',{class:'lead'},'ChainBridge reads your documents and spreadsheets with AI (PDFs, photos, screenshots, CSV), picks out the facts that matter, seals them with a digital fingerprint, and publishes that fingerprint on the Cardano blockchain. You see the price first, and pay only when the fingerprint is published.')),
    drawing()),
   h('div',{class:'upload'},input,
    h('label',{for:'file',class:'drop',ondragover:e=>{e.preventDefault();e.currentTarget.classList.add('over');},ondragleave:e=>e.currentTarget.classList.remove('over'),
-    ondrop:e=>{e.preventDefault();e.currentTarget.classList.remove('over');onFile(e.dataTransfer.files[0]);}},
-    h('strong',{},'Choose a CSV or JSON file'),h('span',{},'or drag it here'),
-    h('small',{},`Up to ${L.maxBytes/1048576} MB and ${L.maxRows.toLocaleString('en')} records. The file is read in this browser. It is not uploaded anywhere.`)),
+    ondrop:e=>{e.preventDefault();e.currentTarget.classList.remove('over');onFiles(e.dataTransfer.files);}},
+    h('strong',{},'Choose documents or a spreadsheet'),h('span',{},'PDF, photo, screenshot, CSV or JSON. Drag them here.'),
+    h('small',{},`Up to ${DOC_LIMITS.maxFiles} documents (${DOC_LIMITS.maxBytes/1048576} MB, ${DOC_LIMITS.maxPages} pages each), or one spreadsheet with up to ${L.maxRows.toLocaleString('en')} records. Nothing is uploaded until you pay and agree.`)),
    h('div',{class:'samples'},h('p',{},'Or try a sample:'),
-    h('button',{class:'btn',type:'button',onclick:()=>loadSample('messy-shipments.csv')},'Messy shipment list (needs tidying)'),
+    h('button',{class:'btn',type:'button',onclick:()=>loadSample('car-inspection-report.pdf')},'Car inspection report (PDF)'),
+    h('button',{class:'btn',type:'button',onclick:()=>loadSample('car-inspection-photo.png')},'Photo of an inspection report (image)'),
+    h('button',{class:'btn',type:'button',onclick:()=>loadSample('messy-shipments.csv')},'Messy shipment list (CSV)'),
     h('button',{class:'btn',type:'button',onclick:()=>loadSample('supplier-certificates.csv')},'Supplier inspection certificates'),
-    h('button',{class:'btn',type:'button',onclick:()=>loadSample('payroll-export.json')},'Payroll export (contains personal data)'))),
+    h('button',{class:'btn',type:'button',onclick:()=>loadSample('payroll-export.json')},'Payroll export (JSON, personal data)'))),
   S.loadError&&note('error',h('strong',{},'We couldn\'t read that file. '),S.loadError),
-  d&&note('ok',h('strong',{},`Loaded ${d.name}. `),`${d.records.length} records, ${d.fields.length} columns.`),
-  d?.issues.length?note('warn',`${d.issues.length} row(s) couldn't be read and were skipped.`,
+  S.mode==='table'&&d&&note('ok',h('strong',{},`Loaded ${d.name}. `),`${d.records.length} records, ${d.fields.length} columns.`),
+  S.mode==='documents'&&S.docs.length&&note('ok',h('strong',{},`Loaded ${S.docs.length} document(s). `),S.docs.map(x=>`${x.name} (${x.pages} page${x.pages>1?'s':''})`).join(', ')),
+  S.mode==='table'&&d?.issues.length?note('warn',`${d.issues.length} row(s) couldn't be read and were skipped.`,
    more('skipped','Show skipped rows',h('ul',{},d.issues.slice(0,50).map(i=>h('li',{},`Row ${i.row}: ${i.message}`))))):null,
-  actions({next:1,disabled:!d,nextHint:d?null:'Choose a file or a sample to continue'}),
+  actions({next:1,disabled:!hasInput(),nextHint:hasInput()?null:'Choose a file or a sample to continue'}),
  ];
 }
 
@@ -196,6 +234,7 @@ function sensSelect(f,i){
   onChange:v=>{S.schema[i]=applyOverride(f,{sensitivity:v});if(S.session?.status==='quoted')S.session=null;revalidate();render();}});
 }
 function viewReview(){
+ if(S.mode==='documents')return viewReviewDocs();
  const d=S.data,recs=d.records;
  const cols=d.fields.slice(0,PREVIEW_COLS);
  const flagged=S.schema.map((f,i)=>[f,i]).filter(([f])=>f.sensitivity!=='none'||f.inferred.sensitivity!=='none');
@@ -227,7 +266,7 @@ function viewReview(){
 }
 
 // ---------- 3. price & payment ----------
-function measurements(){return measure(S.data,S.schema,countTidyIssues);}
+function measurements(){return S.mode==='documents'?measureDocuments(S.docs):measure(S.data,S.schema,countTidyIssues);}
 async function getQuote(){
  S.busy=true;render();
  try{S.session=await api('/api/x402/quote',{measurements:measurements()});S.reviewSchema=S.schema.map(f=>({...f}));}
@@ -271,8 +310,8 @@ function viewPrice(){
   ...heading('Price & payment','Your price is calculated from simple measurements of your file. Getting a price is free.'),
   !s&&[
    h('h3',{},'What we measured'),
-   facts([['Records',m.records.toLocaleString('en')],['Columns',m.columns],['Private columns',m.privateColumns],['Tidy-up problems found',m.tidyIssues]]),
-   h('p',{class:'small muted'},'Only these four numbers are sent to get a price. No data.'),
+   S.mode==='documents'?facts([['Documents',m.documents],['Pages and images',m.pages]]):facts([['Records',m.records.toLocaleString('en')],['Columns',m.columns],['Private columns',m.privateColumns],['Tidy-up problems found',m.tidyIssues]]),
+   h('p',{class:'small muted'},'Only these numbers are sent to get a price. No data.'),
    h('div',{class:'center-action'},h('button',{class:'btn primary big',type:'button',disabled:S.busy,onclick:getQuote},S.busy?'Calculating…':'Get my price'))],
   s&&[
    h('div',{class:'quote'},
@@ -282,9 +321,10 @@ function viewPrice(){
     h('p',{class:'small muted'},'tADA is test ADA on Cardano Preprod. It has no real value. The small Cardano network fee for your payment (about 0.17 tADA) is added by your wallet.')),
    h('h3',{},'What you get'),h('ul',{class:'getlist'},WHAT_YOU_GET.map(w=>h('li',{},w))),
    s.status==='quoted'&&[
+    S.mode==='documents'&&note('info',h('strong',{},'About your documents. '),'After you pay, you will be asked to confirm before the documents are sent to Meta\'s AI for reading. A photo or PDF can\'t be partly hidden, so the AI sees the whole document. Only a fingerprint is ever published.'),
     h('h3',{},'How payment works'),
     h('ol',{class:'small'},h('li',{},'Your wallet signs the payment. It is checked, but not sent yet.'),
-     h('li',{},'ChainBridge does the work: AI tidy-up, fingerprint, publication on Cardano.'),
+     h('li',{},`ChainBridge does the work: ${S.mode==='documents'?'AI extraction':'AI tidy-up'}, fingerprint, publication on Cardano.`),
      h('li',{},'Only when your fingerprint is published is the payment sent to ChainBridge. If anything fails before that, you are not charged.'),
      h('li',{},'Finish within 30 minutes of paying, or the signed payment expires (and nothing is charged).')),
     S.paying?note('info',h('strong',{},S.paying)):
@@ -301,7 +341,7 @@ function viewPrice(){
     ['Payment checker',x.facilitator],S.paymentRequired&&['402 response',h('pre',{class:'code'},JSON.stringify(S.paymentRequired.accepts?.[0]??S.paymentRequired,null,2))],
     s.payer&&['Paid by',s.payer],['Pricing model',`Base ${ada(PRICING.base)} tADA, per 1,000 records ${ada(PRICING.per1000Records)}, per private column ${ada(PRICING.perPrivateColumn)}, per tidy-up problem ${ada(PRICING.perTidyIssue)}`]])),
   ],
-  actions({back:1,next:paid()?3:undefined,nextLabel:'Start the AI tidy-up →'}),
+  actions({back:1,next:paid()?3:undefined,nextLabel:S.mode==='documents'?'Start the AI extraction →':'Start the AI tidy-up →'}),
  ];
 }
 
@@ -335,6 +375,7 @@ function labelsAfter(steps,resultLabels){
  return {...out,...resultLabels};
 }
 function viewTidy(){
+ if(S.mode==='documents')return viewExtract();
  const o=S.organize,applied=o?.applied,hasSuggestions=!!o?.source;
  const preview=hasSuggestions?organizePreview():null;
  const logFor=new Map(preview?preview.result.log.map((l,i)=>[i,l]):[]);
@@ -388,6 +429,73 @@ function beforeAfter(before,after,steps){
  return [h('h4',{},'Before'),table(before.fields.slice(0,PREVIEW_COLS),before.records,false),
   h('h4',{},'After'),table(after.fields.slice(0,PREVIEW_COLS),after.records,true),
   h('p',{class:'small muted'},`Showing the first ${PREVIEW_ROWS} rows and ${PREVIEW_COLS} columns. Highlighted cells changed. Rows: ${before.records.length} before, ${after.records.length} after.`)];
+}
+
+// ---------- documents: review (free) and AI extraction (paid) ----------
+function viewReviewDocs(){
+ const pages=S.docs.reduce((n,d)=>n+d.pages,0);
+ return [
+  ...heading('Review documents',`${S.docs.length} document(s), ${pages} page(s) in total. Check these are the files you want ChainBridge to read and seal.`),
+  h('ul',{class:'doc-list'},S.docs.map(d=>h('li',{},
+   d.preview?h('img',{src:d.preview,alt:'',class:'doc-thumb'}):h('div',{class:'doc-thumb pdf','aria-hidden':'true'},'PDF'),
+   h('div',{class:'doc-meta'},h('strong',{},d.name),
+    h('span',{class:'muted small'},`${d.type.toUpperCase()} · ${d.pages} page${d.pages>1?'s':''} · ${Math.max(1,Math.round(d.bytes/1024))} KB`),
+    h('span',{class:'mono-key'},`SHA-256 ${d.sha256.slice(0,16)}…${d.sha256.slice(-8)}`))))),
+  note('info',h('strong',{},'How your documents are handled. '),'Nothing leaves this device until you have paid and confirmed. Then the whole documents are sent to Meta\'s AI (Muse Spark) to be read: a photo or PDF can\'t be partly hidden the way spreadsheet columns can. Meta states that content sent through its API in standard mode is not used to train its models. You decide which of the facts it finds are kept, and only a fingerprint is published.'),
+  tech(h('p',{},'The file type is checked from the file\'s own bytes. Pages are counted on this device for the price. Each file\'s SHA-256 fingerprint is added to its row, so the certificate also proves which exact file the facts came from.')),
+  actions({back:0,next:2,nextLabel:'See the price →'}),
+ ];
+}
+async function runExtraction(){
+ S.busy=true;render();
+ try{
+  S.session=await api(`/api/x402/session/${S.session.id}/extract`,{consent:true,documents:S.docs.map(d=>({name:d.ai.name,data:d.ai.data}))});
+  S.extract={applied:false,docs:S.session.extraction.map((r,i)=>({...r,name:S.docs[i].name,sha256:S.docs[i].sha256,fields:r.fields.map(f=>({...f,keep:f.relevant}))}))};
+  toast('The AI has read your documents. Check the facts it found.','ok');
+ }catch(e){toast(e.message,'error');}
+ S.busy=false;render();
+}
+function applyExtraction(){
+ const rank={none:0,personal:1,confidential:2};
+ const labels={source_file:'none',source_sha256:'none'};
+ for(const d of S.extract.docs)for(const f of d.fields)if(f.keep&&(labels[f.key]===undefined||rank[f.sensitivity]>rank[labels[f.key]]))labels[f.key]=f.sensitivity;
+ const data=recordsFromExtractions(S.extract.docs);
+ S.original=data;useData(data,labels);S.reviewSchema=S.schema.map(f=>({...f}));S.extract.applied=true;changed();
+ toast(`${data.fields.length-2} fact(s) ready to seal`,'ok');
+}
+function viewExtract(){
+ const x=S.extract,pages=S.docs.reduce((n,d)=>n+d.pages,0);
+ if(!x)return [
+  ...heading('AI extraction','ChainBridge\'s AI reads your documents and picks out the facts worth sealing: identifiers, dates, results, measurements, findings. It skips filler such as legal boilerplate, and shows you the exact words each fact came from.'),
+  h('label',{class:'check consent-check'},h('input',{type:'checkbox',checked:S.extractConsent,onchange:e=>{S.extractConsent=e.target.checked;render();}}),
+   `Send ${S.docs.length} document(s) (${pages} page${pages>1?'s':''}) to Meta's AI to be read. I understand the whole documents are sent.`),
+  h('div',{class:'center-action'},h('button',{class:'btn primary big',type:'button',disabled:!S.extractConsent||S.busy,onclick:runExtraction},
+   S.busy?'The AI is reading your documents (about 30 seconds each)…':'Extract with AI'),h('p',{class:'hint'},'Included in your payment.')),
+  actions({back:2}),
+ ];
+ const kept=x.docs.reduce((n,d)=>n+d.fields.filter(f=>f.keep).length,0);
+ return [
+  ...heading('AI extraction','Check what the AI found. Untick anything you don\'t want sealed and correct values if needed. Each fact shows the words it came from.'),
+  x.applied&&note('ok',h('strong',{},'Facts confirmed. '),`${S.data.records.length} row(s) with ${S.data.fields.length} columns, including each file's name and SHA-256 fingerprint.`),
+  x.docs.map((d,di)=>h('section',{class:'doc-result'},
+   h('div',{class:'eyebrow'},h('span',{class:'num'},`Document ${pad(di+1)}`),h('span',{},d.documentType.replace(/_/g,' ')),h('span',{},d.name)),
+   h('h3',{class:'doc-title'},d.title||d.name),d.summary&&h('p',{class:'doc-summary'},d.summary),
+   h('div',{class:'fact-list'},d.fields.map((f,fi)=>h('div',{class:`fact ${f.keep?'on':''}`},
+    h('input',{type:'checkbox',checked:f.keep,disabled:x.applied,'aria-label':`Keep ${f.label}`,onchange:e=>{f.keep=e.target.checked;render();}}),
+    h('div',{class:'fact-main'},
+     h('label',{class:'fact-label',for:`fv-${di}-${fi}`},f.label,h('span',{class:'mono-key'},f.key)),
+     h('input',{type:'text',id:`fv-${di}-${fi}`,value:f.value,disabled:x.applied,oninput:e=>{f.value=e.target.value;}}),
+     f.evidence&&h('p',{class:'evidence'},`“${f.evidence}”`),
+     !f.relevant&&f.reason&&h('p',{class:'small muted'},`Not ticked by default: ${f.reason}`)),
+    h('div',{class:'fact-side'},
+     dropdown({cls:`sens ${f.sensitivity}`,label:`Privacy label for ${f.label}`,value:f.sensitivity,disabled:x.applied,options:SENSITIVITY.map(v=>[v,SENS_LABEL[v]]),onChange:v=>{f.sensitivity=v;render();}}),
+     f.confidence<0.8&&h('span',{class:'tag warn'},'Check this value'))))),
+   d.omitted.length?more(`omit-${di}`,`What the AI left out (${d.omitted.length})`,h('ul',{},d.omitted.map(o=>h('li',{},h('strong',{},o.what),`: ${o.reason}`)))):null)),
+  !x.applied&&h('div',{class:'center-action'},h('button',{class:'btn primary big',type:'button',disabled:!kept,onclick:applyExtraction},`Use ${kept} fact${kept===1?'':'s'}`),
+   h('p',{class:'hint'},'Each document becomes one row. Its file name and SHA-256 fingerprint are added automatically.')),
+  tech(h('p',{},`Read by ${x.docs[0]?.provider??'AI'} (${x.docs[0]?.model??''}) with a fixed answer format. ChainBridge checks every field name, value and label before showing it. Text inside a document is treated as content, never as instructions.`)),
+  actions({back:2,next:x.applied?4:undefined,nextLabel:'Choose what to publish →'}),
+ ];
 }
 
 // ---------- 5. choose what to publish (paid) ----------
@@ -478,6 +586,7 @@ function viewPublish(){
 // ---------- 7. package ----------
 function reportMarkdown(){
  const s=S.session,o=S.organize,c=S.commitment,p=S.plan;
+ if(S.mode==='documents')return documentReport();
  const lines=[`# ChainBridge data report`,'',`- Source file: ${S.original.name}`,`- Created: ${new Date().toISOString()}`,
   `- Records: ${S.original.records.length} in the file, ${c.stats.committed} sealed`,`- Columns: ${S.data.fields.length}`,'',
   '## AI analysis',o?.source==='ai'?`By ${o.provider??'AI'}${o.model?` (${o.model})`:''}, on a masked sample (private columns hidden).`:o?'Quick rules (no AI).':'Not run.','',
@@ -490,6 +599,21 @@ function reportMarkdown(){
   '- The AI analysis is advice; every change was approved before it was applied.'];
  return lines.join('\n')+'\n';
 }
+function documentReport(){
+ const c=S.commitment,s=S.session,lines=['# ChainBridge document report','',`- Created: ${new Date().toISOString()}`,`- Documents: ${S.extract.docs.length}`,''];
+ for(const d of S.extract.docs){
+  lines.push(`## ${d.title||d.name}`,'',`- File: ${d.name}`,`- SHA-256: ${d.sha256}`,`- Type: ${d.documentType.replace(/_/g,' ')}`,`- Read by: ${d.provider} (${d.model})`,'',d.summary,'','### Facts sealed');
+  for(const f of d.fields.filter(f=>f.keep))lines.push(`- ${f.label}: ${f.value}${f.evidence?` (source: "${f.evidence}")`:''}`);
+  const dropped=d.fields.filter(f=>!f.keep);
+  if(dropped.length)lines.push('','### Facts found but not sealed',...dropped.map(f=>`- ${f.label}: ${f.value}`));
+  if(d.omitted.length)lines.push('','### Left out by the AI',...d.omitted.map(o=>`- ${o.what}: ${o.reason}`));
+  lines.push('');
+ }
+ lines.push('## Fingerprint',`- Columns covered: ${S.plan.fields.join(', ')}`,`- Fingerprint: ${c.root}`,s.publication?`- Published on Cardano Preprod: ${EXPLORER}${s.publication.txHash}`:'','',
+  '## Limits','- The fingerprint proves these facts and files have not changed since they were sealed. It does not prove the documents were true.',
+  '- The AI can misread a document. Every fact was shown with its source words and confirmed before sealing.');
+ return lines.join('\n')+'\n';
+}
 function certificate(){
  const s=S.session,c=S.commitment,pub=s.publication;
  return {document:'ChainBridge certificate',version:1,network:'Cardano Preprod (test network)',issuedAt:new Date().toISOString(),
@@ -497,14 +621,15 @@ function certificate(){
   publication:pub?{transaction:pub.txHash,explorer:pub.explorer,block:pub.blockHeight,status:pub.status,metadataLabel:pub.label,message:pub.metadata,publisher:pub.publisher}:null,
   payment:{protocol:'x402 (exact scheme, direct payment)',network:'cardano:preprod',amount:`${ada(s.quote.totalLovelace)} tADA`,
    transaction:s.settlement?.transaction??null,explorer:s.settlement?.transaction?EXPLORER+s.settlement.transaction:null,payer:s.payer,status:s.status},
+  sources:S.mode==='documents'?S.extract.docs.map(d=>({file:d.name,sha256:d.sha256,pages:d.pages})):[{file:S.original.name}],
   quote:s.quote,
   howToVerify:'Open ChainBridge with the original file and the proof file, choose a record and check it. A match means the record is unchanged since it was sealed.'};
 }
 function downloadPackage(){
  const c=S.commitment;
  const files=[
-  {name:'README.txt',text:`ChainBridge package\n\ncleaned-data.csv   Your data after the approved tidy-up (all ${S.data.records.length} records).\nreport.md          What the AI found, what was changed, privacy labels.\ncertificate.json   Your fingerprint and the Cardano transaction links (publication and payment). Share this.\nproof-file.json    PRIVATE. Needed with your data to check records later. Contains the extra secret values. Do not share.\n\nThe fingerprint proves the data has not changed since it was sealed, not that it was correct.\n`},
-  {name:'cleaned-data.csv',text:toCsv(S.data.fields,S.data.records)},
+  {name:'README.txt',text:`ChainBridge package\n\n${S.mode==='documents'?'extracted-data.csv  The facts you confirmed, one row per document, with each file\'s SHA-256.':`cleaned-data.csv   Your data after the approved tidy-up (all ${S.data.records.length} records).`}\nreport.md          What the AI found, what was changed, privacy labels.\ncertificate.json   Your fingerprint and the Cardano transaction links (publication and payment). Share this.\nproof-file.json    PRIVATE. Needed with your data to check records later. Contains the extra secret values. Do not share.\n\nThe fingerprint proves the data has not changed since it was sealed, not that it was correct.\n`},
+  {name:S.mode==='documents'?'extracted-data.csv':'cleaned-data.csv',text:toCsv(S.data.fields,S.data.records)},
   {name:'report.md',text:reportMarkdown()},
   {name:'certificate.json',text:JSON.stringify(certificate(),null,2)},
   {name:'proof-file.json',text:JSON.stringify(c.bundle,null,2)}];
@@ -522,7 +647,7 @@ function viewPackage(){
     ['Published',h('span',{},pub.status==='confirmed'?`Confirmed in block ${pub.blockHeight}. `:'Sent, awaiting confirmation. ',txLink(pub.txHash))],
     ['Paid',h('span',{},`${ada(s.quote.totalLovelace)} tADA with x402. `,s.settlement?.transaction&&txLink(s.settlement.transaction))]])),
   h('h3',{},'What\'s in the package'),
-  h('ul',{class:'getlist'},h('li',{},h('strong',{},'cleaned-data.csv'),' your data, tidied and sorted'),h('li',{},h('strong',{},'report.md'),' what the AI found and what was changed'),
+  h('ul',{class:'getlist'},h('li',{},h('strong',{},S.mode==='documents'?'extracted-data.csv':'cleaned-data.csv'),S.mode==='documents'?' the facts you confirmed, one row per document':' your data, tidied and sorted'),h('li',{},h('strong',{},'report.md'),' what the AI found and what was changed'),
    h('li',{},h('strong',{},'certificate.json'),' your fingerprint with the Cardano links. Share this as proof.'),h('li',{},h('strong',{},'proof-file.json'),' private. Keep it to check records later.')),
   h('div',{class:'center-action'},h('button',{class:'btn primary big',type:'button',onclick:downloadPackage},'Download package (.zip)'),
    h('div',{class:'row'},h('button',{class:'btn small',type:'button',onclick:()=>download(`chainbridge-certificate-${S.commitment.root.slice(0,8)}.json`,JSON.stringify(certificate(),null,2))},'Certificate only'),

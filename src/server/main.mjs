@@ -18,17 +18,18 @@ import {describeStep} from '../core/recipe.mjs';
 import {PAYMENT_STATUS,TASK_STATES} from './states.mjs';
 import {createX402Routes,x402Settings} from './x402-routes.mjs';
 import {publishFingerprint} from './cardano-anchor.mjs';
+import {extractDocument} from './ai-extract.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const STATIC={'/':'public/index.html','/app.js':'public/app.js','/ui.js':'public/ui.js','/zip.js':'public/zip.js','/wallet.js':'public/wallet.js','/styles.css':'public/styles.css'};
-const TYPES={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',mjs:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',csv:'text/csv; charset=utf-8',json:'application/json; charset=utf-8',woff2:'font/woff2'};
+const TYPES={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',mjs:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',csv:'text/csv; charset=utf-8',json:'application/json; charset=utf-8',woff2:'font/woff2',pdf:'application/pdf',png:'image/png'};
 const HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY',
- 'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"};
+ 'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"};
 
 function staticPath(pathname){
  if(STATIC[pathname])return STATIC[pathname];
  let m=pathname.match(/^\/core\/([a-z-]+\.mjs)$/);if(m)return `src/core/${m[1]}`;
- m=pathname.match(/^\/samples\/([a-z0-9-]+\.(csv|json))$/);if(m)return `samples/${m[1]}`;
+ m=pathname.match(/^\/samples\/([a-z0-9-]+\.(csv|json|pdf|png))$/);if(m)return `samples/${m[1]}`;
  m=pathname.match(/^\/fonts\/((Geist|GeistMono)-Variable\.woff2)$/);if(m)return `public/fonts/${m[1]}`;
  return null;
 }
@@ -42,18 +43,20 @@ export function createApp({config=loadConfig(),dataDir=join(root,'.local/chainbr
  const x402s=x402??x402Settings(root);
  const x402Handle=createX402Routes({settings:x402s,dataDir,audit,resourceBase:`http://127.0.0.1:${config.port}`,
   analyze:aiSettings()?sample=>aiOrganize(sample,{settings:aiSettings()}):undefined,
+  extract:aiSettings()?doc=>extractDocument(doc,{settings:aiSettings()}):undefined,
   publish:args=>publishFingerprint(args,{walletPath:x402s.publishingWallet,blockfrostKey:x402s.blockfrostKey,journalDir:join(journalDir,'anchors')})});
  const send=(res,status,data)=>{res.writeHead(status,{...HEADERS,'content-type':TYPES.json,'cache-control':'no-store'});res.end(JSON.stringify(data));};
- async function body(req){
+ async function body(req,limit=64*1024){
   if(!(req.headers['content-type']||'').startsWith('application/json'))throw new TaskError(415,'Expected application/json');
-  let size=0,text='';for await(const c of req){size+=c.length;if(size>64*1024)throw new TaskError(413,'Request too large');text+=c;}
+  let size=0;const chunks=[];for await(const c of req){size+=c.length;if(size>limit)throw new TaskError(413,'Request too large');chunks.push(c);}
+  const text=Buffer.concat(chunks).toString('utf8');
   try{return JSON.parse(text||'{}');}catch{throw new TaskError(400,'Invalid JSON');}
  }
  return createServer(async(req,res)=>{
   try{
    const url=new URL(req.url,'http://127.0.0.1');
    if(req.method==='POST'){const origin=req.headers.origin;if(origin&&origin!==`http://${req.headers.host}`)return send(res,403,{error:'Cross-origin request refused'});}
-   if(await x402Handle(req,res,url,()=>body(req)))return;
+   if(await x402Handle(req,res,url,limit=>body(req,limit)))return;
    if(req.method==='GET'){
     const file=staticPath(url.pathname);
     if(file&&existsSync(join(root,file))){res.writeHead(200,{...HEADERS,'content-type':TYPES[file.split('.').pop()],'cache-control':'no-cache'});return res.end(readFileSync(join(root,file)));}

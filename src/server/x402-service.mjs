@@ -17,18 +17,19 @@ import {quote as priceQuote} from '../core/pricing.mjs';
 import {merkleRoot,isHash} from '../core/merkle.mjs';
 import {parseJobInput} from '../core/job.mjs';
 import {buildUnsignedPayment,attachWitnesses,paymentPayloadFor,X402_NETWORK} from './x402-pay.mjs';
+import {describeDocument,sha256Hex,DOC_LIMITS} from '../core/documents.mjs';
 
 export class X402Error extends Error{constructor(status,message){super(message);this.status=status;}}
 const ID=/^[0-9a-f-]{36}$/;
 
-export function createX402Service({dir,seller,blockfrostKey,analyze,publish,audit,resourceBase,maxTimeoutSeconds=1800}){
+export function createX402Service({dir,seller,blockfrostKey,analyze,extract,publish,audit,resourceBase,maxTimeoutSeconds=1800}){
  mkdirSync(dir,{recursive:true,mode:0o700});
  const file=id=>{if(!ID.test(id))throw new X402Error(400,'Invalid session');return join(dir,`${id}.json`);};
  const load=id=>{const f=file(id);if(!existsSync(f))throw new X402Error(404,'Unknown quote or session');return JSON.parse(readFileSync(f,'utf8'));};
  const save=s=>{s.updatedAt=new Date().toISOString();writeFileSync(file(s.id),JSON.stringify(s),{mode:0o600});return s;};
  const log=(s,event,extra={})=>audit?.append({event,taskId:s.id,kind:'x402',mode:'x402',network:'Preprod',price:`${s.quote.totalLovelace/1e6} tADA`,
-  paymentStatus:s.status,recordCount:s.quote.measurements.records,...extra});
- const view=s=>({id:s.id,status:s.status,quote:s.quote,payer:s.payer??null,analysis:s.analysis??null,publication:s.publication??null,
+  paymentStatus:s.status,recordCount:s.quote.measurements.records??s.quote.measurements.documents,...extra});
+ const view=s=>({id:s.id,status:s.status,quote:s.quote,payer:s.payer??null,analysis:s.analysis??null,extraction:s.extraction??null,publication:s.publication??null,
   settlement:s.settlement??null,error:s.error??null,createdAt:s.createdAt,paidAt:s.paidAt??null,expiresAt:s.expiresAt??null});
  const needPaid=s=>{
   if(!['paid','analyzed'].includes(s.status))throw new X402Error(402,s.status==='quoted'?'Payment required':`Session is ${s.status}`);
@@ -100,6 +101,33 @@ export function createX402Service({dir,seller,blockfrostKey,analyze,publish,audi
    return view(s);
   },
 
+  // 4b. Paid: AI extraction from documents (PDFs, images). Documents are processed in memory and never stored.
+  async extract(id,{documents,consent}){
+   const s=load(id);needPaid(s);
+   if(s.quote.measurements.kind!=='documents')throw new X402Error(400,'This job was quoted for a table, not for documents');
+   if(consent!==true)throw new X402Error(400,'Sending the documents to the AI service needs your consent');
+   if(!Array.isArray(documents)||!documents.length)throw new X402Error(400,'No documents');
+   if(documents.length>s.quote.measurements.documents)throw new X402Error(400,`The quote covered ${s.quote.measurements.documents} document(s)`);
+   if((s.extractionRuns??0)>=2)throw new X402Error(429,'Extraction limit reached for this job');
+   if(!extract)throw new X402Error(503,'No AI provider is configured for the agent');
+   const parsed=[];let pages=0,total=0;
+   for(const d of documents){
+    const bytes=Buffer.from(String(d?.data??''),'base64');total+=bytes.length;
+    let info;try{info=describeDocument(d?.name??'document',new Uint8Array(bytes));}catch(e){throw new X402Error(400,e.message);}
+    pages+=info.pages;parsed.push({...info,data:bytes.toString('base64'),sha256:await sha256Hex(new Uint8Array(bytes))});
+   }
+   if(total>DOC_LIMITS.maxTotalBytes)throw new X402Error(413,'Documents too large in total');
+   if(pages>s.quote.measurements.pages)throw new X402Error(400,`The quote covered ${s.quote.measurements.pages} page(s); these documents have ${pages}. Request a new quote.`);
+   s.extractionRuns=(s.extractionRuns??0)+1;save(s);
+   const results=[];
+   for(const d of parsed){
+    try{results.push({name:d.name,type:d.type,pages:d.pages,bytes:d.bytes,sha256:d.sha256,...await extract({name:d.name,mime:d.mime,data:d.data})});}
+    catch(e){throw new X402Error(502,`AI extraction failed for ${d.name}: ${e.message}. Nothing has been charged.`);}
+   }
+   s.extraction=results;s.status='analyzed';save(s);log(s,'x402_extracted');
+   return view(s);
+  },
+
   // 5. Paid: check the fingerprint, publish it on Cardano, then settle the payment.
   async publish(id,{payload,leaves}){
    const s=load(id);
@@ -107,7 +135,8 @@ export function createX402Service({dir,seller,blockfrostKey,analyze,publish,audi
    if(['publishing','settling'].includes(s.status))throw new X402Error(409,`A previous ${s.status} step was interrupted. It needs inspection before retrying.`);
    needPaid(s);
    try{parseJobInput(JSON.stringify({service:'chainbridge',version:1,task:'anchor',payload,leaves}));}catch(e){throw new X402Error(400,e.message);}
-   if(leaves.length>s.quote.measurements.records)throw new X402Error(400,`The quote covered ${s.quote.measurements.records} records; this fingerprint has ${leaves.length}. Request a new quote.`);
+   const quoted=s.quote.measurements.kind==='documents'?s.quote.measurements.documents:s.quote.measurements.records;
+   if(leaves.length>quoted)throw new X402Error(400,`The quote covered ${quoted} records; this fingerprint has ${leaves.length}. Request a new quote.`);
    const root=await merkleRoot(leaves);
    if(root!==payload.root||!isHash(root))throw new X402Error(400,'The fingerprint does not match the record fingerprints. Nothing was published or charged.');
    s.status='publishing';s.fingerprint={root,leafCount:leaves.length,salted:payload.salted};save(s);
