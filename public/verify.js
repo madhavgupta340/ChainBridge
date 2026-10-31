@@ -156,7 +156,6 @@ function render(){
    c.series&&row('Version link','Do the series, version number and previous version match the Cardano record?',versionCheck(),srv?.cardano?.checkedBy),
    row('Issuer signature','Was the certificate signed by the key named as its issuer?',is,srv?.issuer?.checkedBy)),
   c?.series&&versionHistory(c.cardano.transaction,{expectedRoot:c.commitment.root,title:'Earlier versions of this certificate'}),
-  c?.series&&h('p',{class:'small muted'},'This certificate can only show itself and the versions before it. If newer versions exist, ask the sender for the latest certificate.'),
   both&&h('div',{class:'split'},
    h('div',{class:'panel public'},h('h3',{},'What a match proves'),h('ul',{},
     h('li',{},'Your file is byte-for-byte the file that was sealed.'),

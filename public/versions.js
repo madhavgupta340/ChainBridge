@@ -23,35 +23,52 @@ export const termsExplainer=()=>h('dl',{class:'terms'},
  h('dt',{},'Certificate series'),h('dd',{},'A random ID such as s-3f9a0c… that connects the versions. It contains nothing about you or the content. Every version repeats it on Cardano, so anyone can see which versions belong together.'),
  h('dt',{},'Cardano transaction'),h('dd',{},'The public record of one version: its fingerprint, version number and a link to the previous version\'s transaction.'));
 
-const LABEL={valid:'Valid',mismatch:'Not valid','not-found':'Missing','not-checked':'Not checked'};
+// One check as a compact chip: icon + plain words (✓ passed, ✕ failed, – not checked).
+const ICON={valid:'✓',mismatch:'✕','not-found':'✕','not-checked':'–'};
 const KIND={valid:'ok',mismatch:'bad','not-found':'bad','not-checked':'none'};
-const pill=c=>c?h('span',{class:`pill ${KIND[c.status]??'none'}`},LABEL[c.status]??c.status):h('span',{class:'pill none'},'Not checked');
-
-function rows(r,{onRefresh}){
- const bad=r.versions.filter(v=>[v.tx,v.record,v.link].some(c=>c&&c.status!=='valid'));
+const chip=(c,words)=>h('span',{class:`vchip ${KIND[c?.status]??'none'}`,title:c?.detail??'Not checked'},h('i',{'aria-hidden':'true'},ICON[c?.status]??'–'),words);
+function chips(v,i,expected){
+ const tx=v.tx?.status,rec=v.record?.status,link=v.link?.status;
  return [
-  r.complete?note('ok',h('strong',{},r.versions.length>1?`All ${r.versions.length} versions check out. `:'Version 1 checks out. '),r.versions.length>1?'Each one links to the version before it, back to version 1, and matches what is recorded on Cardano.':'It is the first version of this series and matches what is recorded on Cardano.')
-   :bad.length?note('error',h('strong',{},'The chain has a problem. '),bad.map(v=>[v.tx,v.record,v.link].find(c=>c&&c.status!=='valid')?.detail).filter(Boolean)[0]??'')
-   :r.stop==='too-long'?note('warn',`Only the newest ${r.versions.length} versions were followed.`):null,
-  h('ol',{class:'vlist'},r.versions.map((v,i)=>h('li',{class:'vrow'},
-   h('div',{class:'vrow-head'},h('strong',{},v.version?`Version ${v.version}`:'Unknown version'),i===0&&h('span',{class:'tag'},'Starting point'),
-    h('a',{class:'mono-key',href:v.explorer,target:'_blank',rel:'noopener'},`${short(v.txHash)} ↗`),v.blockTime&&h('span',{class:'muted small'},`Recorded ${when(v.blockTime)}`)),
-   h('div',{class:'vchecks'},
-    h('span',{class:'vcheck'},'Transaction ',pill(v.tx)),h('span',{class:'vcheck'},'Commitment ',pill(v.record)),h('span',{class:'vcheck'},'Link ',pill(v.link))),
-   [v.tx,v.record,v.link].filter(c=>c&&c.status!=='valid').map(c=>h('p',{class:'small'},c.detail)),
-   v.root&&h('details',{class:'tech'},h('summary',{},'Technical details'),h('div',{class:'tech-body'},h('dl',{class:'facts'},
-    h('dt',{},'Fingerprint'),h('dd',{},h('code',{class:'break'},v.root)),h('dt',{},'Series'),h('dd',{},h('code',{},v.series??'none')),
-    h('dt',{},'Previous version'),h('dd',{},v.prevTx?h('code',{class:'break'},v.prevTx):'None (version 1)'))))))),
-  h('p',{class:'small muted'},r.note),
-  h('div',{class:'row'},h('button',{class:'btn ghost small',type:'button',onclick:onRefresh},'Check again')),
+  chip(v.tx,tx==='valid'?'On Cardano':tx==='not-found'?'Missing on Cardano':'Transaction not checked'),
+  v.record&&chip(v.record,rec==='valid'?(i===0&&expected?'Fingerprint matches':'Fingerprint recorded'):'Fingerprint differs'),
+  v.link&&chip(v.link,link==='valid'?(v.version===1?'Start of the series':`Links to version ${v.version-1}`):'Link broken'),
  ];
+}
+function summary(r){
+ const n=r.versions.length;
+ if(r.complete)return h('p',{class:'vsum ok'},h('i',{'aria-hidden':'true'},'✓'),n>1?`${n} versions, each linked to the one before, back to version 1.`:'Version 1, the start of this series. No earlier versions.');
+ const bad=r.versions.flatMap(v=>[v.tx,v.record,v.link]).find(c=>c&&c.status!=='valid'&&c.status!=='not-checked');
+ if(bad)return h('p',{class:'vsum bad'},h('i',{'aria-hidden':'true'},'✕'),bad.detail);
+ if(r.stop==='too-long')return h('p',{class:'vsum'},h('i',{'aria-hidden':'true'},'–'),`Only the newest ${n} versions were followed.`);
+ return h('p',{class:'vsum'},h('i',{'aria-hidden':'true'},'–'),'Not everything could be checked. See below.');
+}
+function rows(r,expected){
+ return [summary(r),
+  h('ol',{class:'vtl'},r.versions.map((v,i)=>{
+   const problems=[v.tx,v.record,v.link].filter(c=>c&&c.status!=='valid');
+   return h('li',{class:`vnode ${i===0?'head':''} ${problems.some(c=>c.status!=='not-checked')?'bad':''}`},
+    h('span',{class:'vdot','aria-hidden':'true'},v.version??'?'),
+    h('div',{class:'vcard'},
+     h('div',{class:'vcard-head'},
+      h('strong',{},v.version?`Version ${v.version}`:'Unknown version'),i===0&&h('span',{class:'vtag'},expected?'This certificate':'Starting point'),
+      v.blockTime&&h('span',{class:'vwhen'},when(v.blockTime))),
+     h('a',{class:'vtx',href:v.explorer,target:'_blank',rel:'noopener'},`tx ${short(v.txHash)} ↗`),
+     h('div',{class:'vchips'},chips(v,i,expected)),
+     problems.map(c=>h('p',{class:'vproblem'},c.detail)),
+     v.root&&h('details',{class:'vdetails'},h('summary',{},'Details'),h('dl',{},
+      h('dt',{},'Fingerprint'),h('dd',{},h('code',{},v.root)),h('dt',{},'Series'),h('dd',{},h('code',{},v.series??'none')),
+      h('dt',{},'Previous version'),h('dd',{},v.prevTx?h('code',{},v.prevTx):'None (version 1)')))));
+  }))];
 }
 // Version history from `txHash` backwards. Cached per transaction, so re-renders don't refetch; every copy of the view
 // on the page is redrawn when the lookup finishes.
 export function versionHistory(txHash,{expectedRoot=null,title='Version history'}={}){
  const key=`${txHash}:${expectedRoot??''}`;
  const el=h('section',{class:'vhist'});
- const head=()=>[h('h3',{},title),h('p',{class:'small muted'},'Rebuilt from Cardano: ChainBridge keeps no list of versions.')];
+ const head=(busy=false)=>h('div',{class:'vhist-head'},
+  h('div',{},h('h3',{},title),h('p',{class:'vhist-sub'},'Read from Cardano by following each version\'s link to the one before. Newer versions can\'t be seen from here: if you need the latest, ask the sender for its certificate.')),
+  h('button',{class:'btn small',type:'button',disabled:busy,onclick:load},busy?'Checking…':'Check again'));
  const load=()=>{
   const entry={loading:true,views:cache.get(key)?.views??new Set()};cache.set(key,entry);redraw();
   api(`/api/versions/${txHash}/chain${expectedRoot?`?root=${expectedRoot}`:''}`)
@@ -59,9 +76,9 @@ export function versionHistory(txHash,{expectedRoot=null,title='Version history'
  };
  const draw=view=>{
   const c=cache.get(key);
-  if(!c||c.loading)return mount(view,head(),spinner('Following the links on Cardano…'));
-  if(c.error)return mount(view,head(),note('warn',`The version history could not be read: ${c.error}`),h('div',{class:'row'},h('button',{class:'btn ghost small',type:'button',onclick:load},'Try again')));
-  mount(view,head(),rows(c.result,{onRefresh:load}));
+  if(!c||c.loading)return mount(view,head(true),h('div',{class:'vwait'},spinner('Following the links on Cardano…')));
+  if(c.error)return mount(view,head(),note('warn',`The version history could not be read: ${c.error}`));
+  mount(view,head(),rows(c.result,expectedRoot));
  };
  function redraw(){const c=cache.get(key);for(const v of [...c.views]){if(!v.isConnected&&v!==el){c.views.delete(v);continue;}draw(v);}}
  if(!cache.has(key))cache.set(key,{views:new Set()});
