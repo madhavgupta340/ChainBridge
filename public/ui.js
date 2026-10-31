@@ -84,3 +84,33 @@ export function dropdown({value,options,onChange,label,cls='',disabled=false,id}
  });
  return wrap;
 }
+
+// Working indicator for waits that can't be measured (AI, network): an animated document scan, what is going on
+// now, elapsed time and the usual duration. Phases switch on elapsed time and are never shown as done; the real
+// result replaces the indicator. The start time is kept per `id`, so re-renders don't restart the clock.
+const startedAt=new Map();
+export const stopWorking=id=>startedAt.delete(id);
+export function working({id,title,phases=[],usual}){
+ if(!startedAt.has(id))startedAt.set(id,Date.now());
+ const since=startedAt.get(id);
+ const phaseEl=h('p',{class:'work-phase'}),timeEl=h('span',{class:'work-time'});
+ const lines=[0,1,2,3,4,5].map(i=>svg('line',{class:'work-line',x1:10,x2:i%3===2?34:46,y1:24+i*8,y2:24+i*8,style:`animation-delay:${i*.22}s`}));
+ const art=h('div',{class:'work-art','aria-hidden':'true'},
+  svg('svg',{viewBox:'0 0 56 72'},svg('path',{class:'work-doc',d:'M4 2h34l14 14v54H4Z'}),svg('path',{class:'work-doc',d:'M38 2v14h14'}),lines),
+  h('span',{class:'work-scan'}));
+ const el=h('div',{class:'work',role:'status','aria-live':'polite'},art,
+  h('div',{class:'work-body'},h('strong',{class:'work-title'},title),phaseEl,h('div',{class:'work-bar'},h('span',{})),timeEl));
+ let shown=null,mounted=false;
+ const tick=()=>{
+  if(!el.isConnected){if(mounted)clearInterval(timer);return;}
+  mounted=true;
+  const s=Math.floor((Date.now()-since)/1000);
+  const p=[...phases].reverse().find(x=>s>=x[0])?.[1]??'';
+  if(p!==shown){shown=p;phaseEl.classList.remove('in');void phaseEl.offsetWidth;phaseEl.textContent=p;phaseEl.classList.add('in');}
+  timeEl.textContent=`${s} s${usual?` · usually ${usual}`:''}`;
+ };
+ const timer=setInterval(tick,400);setTimeout(tick);
+ return el;
+}
+// Small inline variant: a spinning ring and a line of text.
+export const spinner=text=>h('span',{class:'spin-line',role:'status'},h('span',{class:'spin','aria-hidden':'true'}),text);

@@ -4,7 +4,7 @@
 // The signed payment is only settled after the fingerprint is published; if anything fails before, nothing is charged.
 // Parsing, labelling, tidying, fingerprinting and checking run here in the browser. The agent receives only
 // counts (for the quote), a masked sample (for the AI) and record fingerprints (to publish).
-import {h,svg,dropdown,mount,display,toast,api,download,short,copyButton} from './ui.js';
+import {h,svg,dropdown,mount,display,toast,api,download,short,copyButton,working,stopWorking} from './ui.js';
 import {availableWallets,connect,signPayment} from './wallet.js';
 import {zip,toCsv} from './zip.js';
 import {paymentOverlay} from './payfx.js';
@@ -410,7 +410,7 @@ async function runAi(){
   S.session=await api(`/api/x402/session/${S.session.id}/analyze`,{sample});
   setSuggestions({source:'ai',...S.session.analysis});toast('AI analysis ready. Review the suggestions.','ok');
  }catch(e){toast(e.message,'error');}
- S.busy=false;render();
+ S.busy=false;stopWorking('tidy');render();
 }
 // Privacy labels follow renamed columns; AI label changes are tickable steps.
 function labelsAfter(steps,resultLabels){
@@ -431,8 +431,10 @@ function viewTidy(){
   ...heading('AI tidy-up','ChainBridge\'s AI agent looks at a masked sample of your data and suggests how to tidy and sort it. You approve every change; ChainBridge then makes the approved changes itself, the same way every time.'),
   applied&&note('ok',h('strong',{},`${applied.length} change(s) applied. `),`Your data now has ${S.data.records.length} records and ${S.data.fields.length} columns. Your original file is untouched.`,
    !complete()&&h('div',{class:'row'},h('button',{class:'btn small',type:'button',onclick:()=>{S.organize={...o,applied:null};useData(S.original,labelsAfter([],{}));changed();toast('Back to the original data');}},'Undo all changes'))),
-  !hasSuggestions&&h('div',{class:'center-action'},
-   h('button',{class:'btn primary big',type:'button',disabled:S.busy,onclick:runAi},S.busy?'The AI is analysing your data…':'Run the AI analysis'),
+  !hasSuggestions&&S.busy&&working({id:'tidy',title:'The AI is analysing your data',usual:'10–40 seconds',
+   phases:[[0,'Sending the masked sample to Meta\'s AI'],[4,'Looking for messy values, duplicates and inconsistent formats'],[15,'Writing tidy-up suggestions'],[30,'Still working. Almost there.']]}),
+  !hasSuggestions&&!S.busy&&h('div',{class:'center-action'},
+   h('button',{class:'btn primary big',type:'button',onclick:runAi},'Run the AI analysis'),
    h('p',{class:'hint'},'Included in your payment. The AI sees only the masked sample below.'),
    more('aisample','Show exactly what the AI receives',h('pre',{class:'code'},JSON.stringify(sample,null,2))),
    h('button',{class:'btn small ghost',type:'button',onclick:()=>setSuggestions(suggestRecipeLocally(S.original))},'Or use quick rules instead (no AI)')),
@@ -499,7 +501,7 @@ async function runExtraction(){
   S.extract={applied:false,docs:S.session.extraction.map((r,i)=>({...r,name:S.docs[i].name,sha256:S.docs[i].sha256,fields:r.fields.map(f=>({...f,keep:f.relevant}))}))};
   toast('The AI has read your documents. Check the facts it found.','ok');
  }catch(e){toast(e.message,'error');}
- S.busy=false;render();
+ S.busy=false;stopWorking('extract');render();
 }
 function applyExtraction(){
  const rank={none:0,personal:1,confidential:2};
@@ -515,8 +517,10 @@ function viewExtract(){
   ...heading('AI extraction','ChainBridge\'s AI reads your documents and picks out the facts worth sealing: identifiers, dates, results, measurements, findings. It skips filler such as legal boilerplate, and shows you the exact words each fact came from.'),
   h('label',{class:'check consent-check'},h('input',{type:'checkbox',checked:S.extractConsent,onchange:e=>{S.extractConsent=e.target.checked;render();}}),
    `Send ${S.docs.length} document(s) (${pages} page${pages>1?'s':''}) to Meta's AI to be read. I understand the whole documents are sent.`),
-  h('div',{class:'center-action'},h('button',{class:'btn primary big',type:'button',disabled:!S.extractConsent||S.busy,onclick:runExtraction},
-   S.busy?'The AI is reading your documents (about 30 seconds each)…':'Extract with AI'),h('p',{class:'hint'},'Included in your payment.')),
+  S.busy?working({id:'extract',title:`The AI is reading your document${S.docs.length>1?'s':''}`,usual:`${S.docs.length*20}–${S.docs.length*60} seconds`,
+    phases:[[0,'Sending your document to Meta\'s AI'],[4,`Reading ${pages} page${pages>1?'s':''}`],[14,'Picking out the facts and the words each one came from'],
+     [30,'Labelling private details and leaving out filler'],[50,'Still working. Long or detailed documents take a little longer.']]})
+  :h('div',{class:'center-action'},h('button',{class:'btn primary big',type:'button',disabled:!S.extractConsent,onclick:runExtraction},'Extract with AI'),h('p',{class:'hint'},'Included in your payment.')),
   actions({back:2}),
  ];
  const kept=x.docs.reduce((n,d)=>n+d.fields.filter(f=>f.keep).length,0);

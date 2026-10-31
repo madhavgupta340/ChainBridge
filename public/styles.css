@@ -454,3 +454,50 @@ td.changed-cell{color:var(--signal);font-weight:500}
 .field.paste .row{margin:.4rem 0 0;flex-wrap:nowrap}
 .field.paste input.grow{flex:1;min-width:0;font-family:var(--mono);font-size:.82rem}
 [hidden]{display:none!important}
+
+/* ---------- working indicator ---------- */
+.work{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1.4rem;align-items:center;border:1px solid var(--line-2);padding:1.3rem 1.5rem;margin:2rem 0;background:var(--paper-2);position:relative;overflow:hidden}
+.work::before{content:"";position:absolute;left:-1px;top:-1px;width:44px;height:3px;background:var(--signal)}
+.work-art{position:relative;width:56px;height:72px}
+.work-art svg{width:56px;height:72px;display:block}
+.work-doc{fill:var(--paper);stroke:var(--ink-2);stroke-width:1.5;stroke-linejoin:round}
+.work-line{stroke:var(--ink-3);stroke-width:2.5;stroke-linecap:round;animation:work-read 1.8s ease-in-out infinite}
+.work-scan{position:absolute;left:-6px;right:-6px;height:2px;top:8px;background:var(--signal);box-shadow:0 0 12px 2px var(--signal-bg),0 0 4px var(--signal);animation:work-scan 1.8s cubic-bezier(.45,0,.55,1) infinite alternate}
+.work-title{display:block;font-size:1.15rem;font-weight:400;letter-spacing:-.02em}
+.work-phase{margin:.3rem 0 .8rem;color:var(--ink-2);min-height:1.4em}
+.work-phase.in{animation:work-fade .45s ease-out}
+.work-bar{height:2px;background:var(--line);position:relative;overflow:hidden;max-width:420px}
+.work-bar span{position:absolute;top:0;bottom:0;width:30%;background:var(--ink);animation:work-bar 1.6s cubic-bezier(.65,0,.35,1) infinite}
+.work-time{display:block;margin-top:.6rem;font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+@keyframes work-scan{from{top:6px}to{top:64px}}
+@keyframes work-read{0%,100%{stroke:var(--ink-3);opacity:.45}45%{stroke:var(--signal);opacity:1}}
+@keyframes work-bar{from{left:-30%}to{left:100%}}
+@keyframes work-fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.spin-line{display:inline-flex;align-items:center;gap:.6rem;color:var(--ink-2)}
+.spin{width:14px;height:14px;border:1.5px solid var(--line-2);border-top-color:var(--signal);border-radius:50%;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.work-scan,.work-line,.work-bar span,.spin,.work-phase.in{animation:none}.work-bar span{left:35%}}
+@media (max-width:520px){.work{grid-template-columns:1fr;gap:1rem}}
+
+/* ---------- check page: two slots ---------- */
+.slots{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line-2);margin-top:1.5rem}
+.slot{display:flex;flex-direction:column;gap:.9rem;padding:1.1rem 1.2rem 1.3rem;min-width:0;min-height:260px;transition:background .2s}
+.slot+.slot{border-left:1px solid var(--line-2)}
+.slot-head{display:flex;align-items:center;gap:.7rem}
+.slot-head strong{font-size:1.05rem;font-weight:500;letter-spacing:-.01em}
+.slot-head .pill{margin-left:auto}
+.slot-num{display:grid;place-items:center;width:1.6rem;height:1.6rem;border:1px solid var(--ink-2);font-family:var(--mono);font-size:.72rem;flex:none}
+.slot.done{background:var(--paper-2)}
+.slot.done .slot-num{border-color:var(--ok);color:var(--ok);background:var(--ok-bg)}
+.slot .drop{border:1px solid var(--line-2);padding:2rem 1rem;flex:1}
+.slot .drop strong{font-size:1.1rem}
+.slot .field.paste{margin-top:0}
+.slot-wait{flex:1;display:grid;place-items:center;border:1px dashed var(--line-2);min-height:150px}
+.slot-facts{display:grid;grid-template-columns:max-content 1fr;gap:.45rem 1rem;margin:0;flex:1;align-content:start}
+.slot-facts dt{font-family:var(--mono);font-size:.64rem;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);padding-top:.2rem}
+.slot-facts dd{margin:0;word-break:break-word}
+.slot .btn.ghost{align-self:flex-start;padding-left:0;padding-right:0}
+.slots-hint{color:var(--ink-3);font-family:var(--mono);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;margin:.9rem 0 0}
+.pill.checking{display:inline-flex;align-items:center;gap:.45rem;color:var(--ink-2)}
+.pill.checking .spin{width:10px;height:10px}
+@media (max-width:720px){.slots{grid-template-columns:1fr}.slot+.slot{border-left:0;border-top:1px solid var(--line-2)}.slot{min-height:0}}

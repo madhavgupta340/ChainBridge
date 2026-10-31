@@ -4,24 +4,28 @@
 //  Cardano record   looked up by the ChainBridge server (Blockfrost); the transaction link lets anyone check it.
 //  Issuer signature checked by the ChainBridge server; a valid signature proves control of a key, not identity.
 // Each check is shown as valid, not valid or not checked. Nothing is shown as valid unless it was checked.
-import {h,mount,api,download,copyButton} from './ui.js';
+import {h,mount,api,download,copyButton,spinner} from './ui.js';
 import {checkFile,validateCertificate} from '/core/certificate.mjs';
 import {sha256Hex} from '/core/documents.mjs';
 
 const EXPLORER='https://preprod.cardanoscan.io/transaction/';
-const V={cert:null,link:null,server:null,serverError:null,file:null,fileResult:null,loadError:null,busy:false};
+const V={cert:null,link:null,server:null,serverError:null,file:null,fileResult:null,loadError:null,certLoading:false,fileLoading:false};
 let root=null;
 const note=(kind,...c)=>h('div',{class:`note ${kind}`,role:kind==='error'?'alert':null},...c);
 const date=iso=>iso?new Date(iso).toLocaleString('en-GB',{dateStyle:'long',timeStyle:'short'}):'';
 
 // Mounts the checker into `el` (kept by the caller and re-attached on tab switches, so its state survives).
 export function mountChecker(el){root=el;root.classList.add('verify-page');render();}
+// Keeps a loading state visible long enough to be seen, so fast steps don't flash.
+const atLeast=(ms,p)=>Promise.all([p,new Promise(r=>setTimeout(r,ms))]).then(([v])=>v);
 export async function openCertificateId(id){
- V.loadError=null;
- try{const r=await api(`/api/certificates/${id}`);await useCertificate(r.certificate,r.link);}
- catch(e){V.loadError=e.message;render();}
+ Object.assign(V,{loadError:null,certLoading:true});render();
+ try{const r=await atLeast(500,api(`/api/certificates/${id}`));V.certLoading=false;await useCertificate(r.certificate,r.link);}
+ catch(e){Object.assign(V,{loadError:e.message,certLoading:false});render();}
 }
-export function resetChecker(){Object.assign(V,{cert:null,link:null,server:null,serverError:null,file:null,fileResult:null,loadError:null,busy:false});render();}
+const clearCert=()=>{Object.assign(V,{cert:null,link:null,server:null,serverError:null,fileResult:null,loadError:null});render();};
+const clearFile=()=>{Object.assign(V,{file:null,fileResult:null});render();};
+export function resetChecker(){Object.assign(V,{cert:null,link:null,server:null,serverError:null,file:null,fileResult:null,loadError:null,certLoading:false,fileLoading:false});render();}
 // A pasted verification link or bare certificate identifier.
 function onPaste(text){
  const m=String(text).trim().match(/(?:^|\/verify\/)([0-9a-f]{32})\/?$/i);
@@ -29,35 +33,38 @@ function onPaste(text){
  openCertificateId(m[1].toLowerCase());
 }
 async function useCertificate(cert,link=null){
- try{V.cert=validateCertificate(cert);}catch(e){V.loadError=e.message;return render();}
+ try{V.cert=validateCertificate(cert);}catch(e){Object.assign(V,{loadError:e.message,certLoading:false});return render();}
  Object.assign(V,{link,server:null,serverError:null,loadError:null,fileResult:V.file?await checkFile(V.cert,V.file.sha256):null});
  render();
- try{V.server=await api('/api/verify/check',{certificate:V.cert});}catch(e){V.serverError=e.message;}
+ try{V.server=await atLeast(700,api('/api/verify/check',{certificate:V.cert}));}catch(e){V.serverError=e.message;}
  render();
 }
 async function onCertificateFile(f){
  if(!f)return;
+ V.loadError=null;
  if(f.size>256*1024){V.loadError='That file is too large to be a ChainBridge certificate.';return render();}
- let json;try{json=JSON.parse(await f.text());}catch{V.loadError='That file is not a certificate (it is not JSON).';return render();}
- useCertificate(json);
+ V.certLoading=true;render();
+ let json;try{json=JSON.parse(await atLeast(400,f.text()));}catch{Object.assign(V,{loadError:'That file is not a certificate (it is not JSON).',certLoading:false});return render();}
+ V.certLoading=false;useCertificate(json);
 }
+// The file can be added before or after the certificate; it is only hashed, here, and never uploaded.
 async function onFile(f){
  if(!f)return;
- V.busy=true;render();
- const sha256=await sha256Hex(new Uint8Array(await f.arrayBuffer()));
+ V.fileLoading=true;render();
+ const sha256=await atLeast(600,f.arrayBuffer().then(b=>sha256Hex(new Uint8Array(b))));
  V.file={name:f.name,size:f.size,sha256};
- V.fileResult=await checkFile(V.cert,sha256);
- V.busy=false;render();
+ V.fileResult=V.cert?await checkFile(V.cert,sha256):null;
+ V.fileLoading=false;render();
 }
 
 function drop({id,accept,title,hint,onfile}){
- const input=h('input',{type:'file',id,accept,class:'visually-hidden',onchange:e=>onfile(e.target.files[0])});
+ const input=h('input',{type:'file',id,accept,class:'visually-hidden',onchange:e=>{onfile(e.target.files[0]);e.target.value='';}});
  return [input,h('label',{for:id,class:'drop',ondragover:e=>{e.preventDefault();e.currentTarget.classList.add('over');},ondragleave:e=>e.currentTarget.classList.remove('over'),
   ondrop:e=>{e.preventDefault();e.currentTarget.classList.remove('over');onfile(e.dataTransfer.files[0]);}},h('strong',{},title),h('span',{},hint))];
 }
 
 // ---------- checks ----------
-const LABEL={valid:'Valid',invalid:'Not valid',mismatch:'Not valid','no-match':'Not valid',broken:'Not valid','not-found':'Not found','not-checked':'Not checked',waiting:'Waiting for your file',checking:'Checking…'};
+const LABEL={valid:'Valid',invalid:'Not valid',mismatch:'Not valid','no-match':'Not valid',broken:'Not valid','not-found':'Not found','not-checked':'Not checked',waiting:'Waiting for your file',checking:'Checking'};
 const KIND={valid:'ok',invalid:'bad',mismatch:'bad','no-match':'bad',broken:'bad','not-found':'bad','not-checked':'none',waiting:'none',checking:'none'};
 function fileCheck(){
  const r=V.fileResult;
@@ -79,7 +86,7 @@ function issuerCheck(){
 }
 function row(title,what,c,who){
  return h('li',{class:`check-row ${KIND[c.status]}`},
-  h('div',{class:'check-head'},h('strong',{},title),h('span',{class:`pill ${KIND[c.status]}`},LABEL[c.status]??c.status)),
+  h('div',{class:'check-head'},h('strong',{},title),c.status==='checking'?h('span',{class:'pill checking'},h('span',{class:'spin','aria-hidden':'true'}),'Checking'):h('span',{class:`pill ${KIND[c.status]}`},LABEL[c.status]??c.status)),
   h('p',{class:'muted small'},what),h('p',{},c.text),who&&h('p',{class:'mono-key'},who));
 }
 
@@ -96,37 +103,52 @@ function verdict(f,c){
 }
 
 // ---------- page ----------
-function render(){
- if(!root)return;
+const kb=n=>n<1024*1024?`${Math.max(1,Math.round(n/1024))} KB`:`${(n/1048576).toFixed(1)} MB`;
+function slot(n,title,state,...body){
+ return h('section',{class:`slot ${state}`},
+  h('div',{class:'slot-head'},h('span',{class:'slot-num'},state==='done'?'✓':n),h('strong',{},title),state==='done'&&h('span',{class:'pill ok'},'Added')),
+  ...body);
+}
+function certSlot(){
  const c=V.cert;
- if(!c){
-  const field=h('input',{type:'text',id:'certlink',class:'grow',placeholder:'https://…/verify/3254f4bd…  or the certificate ID',autocomplete:'off',spellcheck:'false',
-   onkeydown:e=>{if(e.key==='Enter')onPaste(e.target.value);}});
-  return mount(root,
-  h('div',{class:'eyebrow'},h('span',{class:'num'},'Check'),h('span',{},'Free, nothing is uploaded')),
-  h('h2',{tabindex:-1},'Check a document',h('span',{class:'dot'},'.')),
-  h('p',{class:'lead'},'Someone sent you a document sealed with ChainBridge? Open its certificate, then add your copy of the file to see if it is the exact version that was sealed.'),
-  h('div',{class:'upload single'},drop({id:'cert',accept:'.json,application/json',title:'Open the certificate',hint:'The .json certificate file you were sent.',onfile:onCertificateFile})),
-  h('div',{class:'field paste'},h('label',{for:'certlink'},'Or paste the verification link'),
+ if(V.certLoading)return slot('1','The certificate','busy',h('div',{class:'slot-wait'},spinner('Opening the certificate…')));
+ if(c)return slot('1','The certificate','done',
+  h('dl',{class:'slot-facts'},h('dt',{},'For the file'),h('dd',{},c.file.name),h('dt',{},'Issued'),h('dd',{},date(c.issuedAt)),h('dt',{},'Network'),h('dd',{},c.testNetwork?'Cardano Preprod (test network)':'Cardano')),
+  h('button',{class:'btn ghost small',type:'button',onclick:clearCert},'Use a different certificate'));
+ const field=h('input',{type:'text',id:'certlink',class:'grow',placeholder:'Verification link or certificate ID',autocomplete:'off',spellcheck:'false',
+  onkeydown:e=>{if(e.key==='Enter')onPaste(e.target.value);}});
+ return slot('1','The certificate','empty',
+  drop({id:'cert',accept:'.json,application/json',title:'Open the certificate',hint:'The .json file you were sent',onfile:onCertificateFile}),
+  h('div',{class:'field paste'},h('label',{for:'certlink'},'Or paste the link'),
    h('div',{class:'row'},field,h('button',{class:'btn',type:'button',onclick:()=>onPaste(field.value)},'Open'))),
   V.loadError&&note('error',h('strong',{},'Could not open it. '),V.loadError));
- }
-
+}
+function fileSlot(){
+ const c=V.cert,f=V.file;
+ if(V.fileLoading)return slot('2','Your copy of the file','busy',h('div',{class:'slot-wait'},spinner('Calculating your file\'s fingerprint on this device…')));
+ if(f)return slot('2','Your copy of the file','done',
+  h('dl',{class:'slot-facts'},h('dt',{},'File'),h('dd',{},f.name),h('dt',{},'Size'),h('dd',{},kb(f.size)),h('dt',{},'Fingerprint'),h('dd',{class:'mono-key'},`${f.sha256.slice(0,16)}…${f.sha256.slice(-8)}`)),
+  h('button',{class:'btn ghost small',type:'button',onclick:clearFile},'Choose a different file'));
+ return slot('2','Your copy of the file','empty',
+  drop({id:'mine',accept:'',title:c?`Add ${c.file.name}`:'Add the file',hint:'Checked on this device, never uploaded',onfile:onFile}));
+}
+function render(){
+ if(!root)return;
+ const c=V.cert,both=c&&V.file&&!V.fileLoading;
  const f=fileCheck(),ca=cardanoCheck(),is=issuerCheck(),srv=V.server;
  return mount(root,
   h('div',{class:'eyebrow'},h('span',{class:'num'},'Check'),h('span',{},'Free, your file is not uploaded')),
-  h('h2',{tabindex:-1},'Is this the sealed file',h('span',{class:'dot'},'?')),
-  h('div',{class:'row'},h('button',{class:'btn ghost small',type:'button',onclick:resetChecker},'← Check a different certificate')),
-  h('p',{class:'lead'},'You were sent a ChainBridge certificate for ',h('strong',{},c.file.name),'. Add your copy of that file to check whether it is exactly the version that was sealed and recorded on the Cardano blockchain.'),
-  c.testNetwork&&note('info',h('strong',{},'Test network. '),'This certificate uses Cardano Preprod, a public test network. It works like the real Cardano network, but its tokens have no value.'),
-  h('div',{class:'upload single'},drop({id:'mine',accept:'',title:V.file?`Checked: ${V.file.name}`:`Add your copy of ${c.file.name}`,
-   hint:V.busy?'Checking…':V.file?'Drop another file to check it instead.':'Drag it here or choose it. It is checked on this device and never uploaded.',onfile:onFile})),
-  verdict(f,ca),
-  h('ol',{class:'checks'},
+  h('h2',{tabindex:-1},'Check a document',h('span',{class:'dot'},'.')),
+  h('p',{class:'lead'},'Someone sent you a document sealed with ChainBridge? Add the certificate they sent and your copy of the file. ChainBridge tells you whether it is exactly the version that was sealed on the Cardano blockchain.'),
+  h('div',{class:'slots'},certSlot(),fileSlot()),
+  !both&&h('p',{class:'slots-hint'},!c&&!V.file?'Add both to see the result.':!c?'Now add the certificate.':'Now add your copy of the file.'),
+  c?.testNetwork&&both&&note('info',h('strong',{},'Test network. '),'This certificate uses Cardano Preprod, a public test network. It works like the real Cardano network, but its tokens have no value.'),
+  both&&verdict(f,ca),
+  c&&h('ol',{class:'checks'},
    row('File match','Does your file match the fingerprint in the certificate?',f,'Checked in this browser'),
    row('Cardano record','Does the Cardano transaction contain this fingerprint?',ca,srv?.cardano?.checkedBy),
    row('Issuer signature','Was the certificate signed by the key named as its issuer?',is,srv?.issuer?.checkedBy)),
-  h('div',{class:'split'},
+  both&&h('div',{class:'split'},
    h('div',{class:'panel public'},h('h3',{},'What a match proves'),h('ul',{},
     h('li',{},'Your file is byte-for-byte the file that was sealed.'),
     h('li',{},'With a valid Cardano record: it was sealed no later than the date of that record, and has not changed since.'))),
@@ -134,7 +156,8 @@ function render(){
     h('li',{},'That what the document says is true.'),
     h('li',{},'Who the issuer is in real life. A valid signature proves the certificate was signed with a certain key, not which person or company owns that key.'),
     c.issuer?.demo&&h('li',{},'This certificate is signed by a demo issuer on a test network.')))),
-  details(c,srv));
+  c&&details(c,srv),
+  (c||V.file)&&h('div',{class:'row'},h('button',{class:'btn ghost small',type:'button',onclick:resetChecker},'Start over')));
 }
 
 function details(c,srv){
