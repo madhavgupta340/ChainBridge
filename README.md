@@ -1,6 +1,6 @@
 # ChainBridge
 
-<video src="Project Video.mp4" controls width="100%"></video>
+[▶ Watch the ChainBridge Demo](./Project%20Video.mp4)
 
 **A pay-per-use AI agent on Cardano that reads your documents and data, picks out the facts that matter, seals them with a fingerprint, and publishes that fingerprint on the blockchain as public proof.**
 
